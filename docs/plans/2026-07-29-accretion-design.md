@@ -47,6 +47,16 @@ being modified must not certify its own modification. Internalizing the
 write policy (meta-trained consolidation) is v2; full in-architecture
 nested optimization (Hope-style) is explicitly not attempted.
 
+**Skill lane (deferred): hotswappable LoRA library.** When sleep detects a
+cluster of related experience, it trains a per-domain skill adapter and adds
+it to a library; inference loads adapters on demand (one at a time first —
+LoRA composition interferes). Facts → tables, skills → adapter library,
+thinking → frozen backbone. Prior art in-house: Gianni's
+TITANS-implementation repo (June 2026, GPT-2-124M) hit both failure modes
+this design fixes — raw persistence without gated consolidation (unsustained
+learning, degradation loops) and a backbone never meta-trained to use its
+memory. Its repetition-based learning test prefigures the retention suite.
+
 ## Evaluation (v1 protocol)
 
 K verifiable fact-docs provably absent from FineWeb → shown once at
