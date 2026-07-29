@@ -70,7 +70,13 @@ forget or degrade — demonstrating that is part of the claim).
    Titans' learned inner-LR, zero-init gates; Stage A tests it first.
 2. Expressibility gap — bigram-keyed tables can't store everything fast
    memory learns; v1 claim scoped to factual/entity knowledge.
-3. Lifetime bucket capacity — measurable; usage counters + pruning.
+3. Lifetime bucket capacity / small-model saturation — measurable (usage
+   counters + collision rate = live memory-pressure gauge), and structurally
+   solvable: the backbone is frozen, facts live in tables, and table
+   capacity is a storage knob (grow buckets 4x = +130MB, no retraining;
+   sparse access permits RAM offload per Gemma PLE). What cannot grow this
+   way is backbone *skill* — hence v1's facts-only claim scoping, the LoRA
+   extension for the skill lane, and the unchanged port to 350M later.
 4. Field speed — the combo is hot; our edge is Engram + harness exist today.
 
 ## End-state extensions (validated 2026-07-29, v2/v3 — not in v1 scope)
