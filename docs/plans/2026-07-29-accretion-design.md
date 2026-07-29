@@ -73,6 +73,29 @@ forget or degrade — demonstrating that is part of the claim).
 3. Lifetime bucket capacity — measurable; usage counters + pruning.
 4. Field speed — the combo is hot; our edge is Engram + harness exist today.
 
+## End-state extensions (validated 2026-07-29, v2/v3 — not in v1 scope)
+
+- **Sleep pressure / model chooses when to sleep:** expose fast-memory
+  saturation (weight-norm vs decay equilibrium), surprise integral, and
+  buffer depth as input features; tiny policy head requests sleep. v1's
+  buffer-trigger is the primitive version. Gate stays external always —
+  model picks WHEN, never certifies the writes.
+- **Internal clock:** absolute + delta timestamps embedded per context;
+  memory ages by wall-clock, not tokens. Perceives elapsed time.
+- **Instant wake:** inference process stays resident (serve card); sleep
+  job preemptible on the second GPU. Wake = normal latency + injected
+  "while you slept" preamble (what consolidated, time elapsed).
+- **Dreaming (sleep-time compute, cf. Letta 2025):** idle-time generation
+  connecting new memories to old knowledge; elaborations enter
+  consolidation as synthetic replay.
+- **Workspace-gated consolidation (J-space, Anthropic July 2026):** add a
+  J-lens-style Jacobian probe over the residual stream; select memory
+  writes by what occupied the model's global workspace, not surprise
+  alone (surprise = unexpected; workspace = integrated; use both).
+  Reportability gives an audit trail: the model reports what it learned,
+  gate checks the report against probes. Believed unpublished as a
+  consolidation mechanism — strongest novelty claim in the design.
+
 ## Provenance
 
 Titans (fast tier recipe), DeepSeek Engram (slow substrate), Hope/Nested
