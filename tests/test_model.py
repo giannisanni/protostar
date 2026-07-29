@@ -12,9 +12,22 @@ def test_param_count_default():
 
 def test_forward_shape():
     cfg = Config(**TINY)
-    logits, loss = Protostar(cfg)(torch.randint(0, 512, (2, 64)), targets=torch.randint(0, 512, (2, 64)))
+    model = Protostar(cfg)
+    logits, _ = model(torch.randint(0, 512, (2, 64)))
     assert logits.shape == (2, 64, 512)
+    _, loss = model(torch.randint(0, 512, (2, 64)), targets=torch.randint(0, 512, (2, 64)))
     assert loss.ndim == 0 and loss.item() > 0
+
+
+def test_chunked_loss_matches_full():
+    cfg = Config(**TINY)
+    model = Protostar(cfg).eval()
+    x, t = torch.randint(0, 512, (2, 64)), torch.randint(0, 512, (2, 64))
+    with torch.no_grad():
+        logits, _ = model(x)
+        full = torch.nn.functional.cross_entropy(logits.view(-1, 512), t.reshape(-1))
+        _, chunked = model(x, targets=t)
+    torch.testing.assert_close(chunked, full, atol=1e-5, rtol=1e-5)
 
 
 def test_causality():

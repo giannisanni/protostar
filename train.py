@@ -59,12 +59,14 @@ def build_optimizer(model, t: TrainConfig):
 @torch.no_grad()
 def val_loss(model, cfg, t, device):
     model.eval()
+    mtp_prev, cfg.mtp = cfg.mtp, False  # ponytail: val compares MAIN-head CE only across arms
     loader = Shards(t.data_dir, "val", t.batch, cfg.seq_len)
     losses = []
     for batch, _ in zip(loader.batches(), range(t.val_batches)):
         batch = batch.to(device)
         _, loss = model(batch[:, :-1], targets=batch[:, 1:])
         losses.append(loss.item())
+    cfg.mtp = mtp_prev
     model.train()
     return sum(losses) / len(losses)
 
@@ -84,6 +86,9 @@ def train(cfg: Config, t: TrainConfig) -> float:
     raw = model
     if ddp:
         model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[device.index])
+        from torch.distributed.algorithms.ddp_comm_hooks.default_hooks import bf16_compress_hook
+
+        model.register_comm_hook(dist.group.WORLD, bf16_compress_hook)  # halves comm on the x1 link
     opt = build_optimizer(raw, t)
     loader = Shards(t.data_dir, "train", t.batch, cfg.seq_len, rank=rank, world=world)
 
