@@ -1,0 +1,16 @@
+[project]
+name = "protostar"
+version = "0.1.0"
+description = "125M-class LLM prototype: recipe-v4 ablations on substrate"
+requires-python = ">=3.12"
+dependencies = [
+    "torch>=2.13",
+    "numpy",
+]
+
+[project.optional-dependencies]
+gpu = ["flash-linear-attention"]
+dev = ["pytest"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
