@@ -81,6 +81,29 @@ v3 = sleep *pressure* becomes a learned signal (model chooses when).
 not certify its own modification. Judgment moves inward over time;
 verification stays outward permanently.
 
+## Vector search (turbovec): harness yes, memory no
+
+Using an ANN index AS the memory = RAG, which is a different system:
+knowledge stays outside as text, costs context, needs a search before
+generation, and must be reasoned over as quoted tokens. Accretion writes to
+parameters: zero context cost, O(1) in-forward lookup, available at every
+layer. RAG = looking it up; accretion = having learned it. Complements, not
+competitors — retrieval keeps the long tail, verbatim, and fresh/auditable
+facts.
+
+**Where turbovec (Rust, TurboQuant, ~8x compression, already used in
+lcovec) does fit — all harness-side:** (1) sleep-time dedup, "does the
+model already know this?" before consolidating; (2) retention-probe
+selection, test the probes semantically nearest the write batch instead of
+the whole suite; (3) replay diversity sampling.
+
+**Real limitation it highlights:** Engram's bigram hash keys on exact token
+pairs — it cannot retrieve on paraphrase. The fix is NOT an external index
+but **product-key memory** (Lample et al.; Meta's Memory Layers at Scale):
+factorized learned keys, top-k over each half, huge key space at a fraction
+of the comparisons — semantic, differentiable, still inside the forward
+pass. That is the upgrade path if the ablation shows hashing is too rigid.
+
 ## Evaluation (v1 protocol)
 
 K verifiable fact-docs provably absent from FineWeb → shown once at
