@@ -57,6 +57,30 @@ this design fixes — raw persistence without gated consolidation (unsustained
 learning, degradation loops) and a backbone never meta-trained to use its
 memory. Its repetition-based learning test prefigures the retention suite.
 
+## Boundary: what is IN the model vs what is HARNESS
+
+Split by timescale: per-token and differentiable goes in the model; rare,
+expensive, judgment-requiring goes in the harness.
+
+**In the model (weights / forward pass):** frozen backbone; fast-memory MLP
+incl. its inner-loop update (learning happens *inside* inference); the gate
+mixing memory into the residual; Engram tables (read every forward, written
+only at sleep); and — least obvious — the meta-learned expectation that a
+changing memory exists, which is what [[TITANS-implementation]] lacked and
+had to fake with a 1000x embedding magnitude hack.
+
+**In the harness (external / offline):** the sleep job (replay, locate
+contributing positions, distill to bucket writes); the replay buffer;
+bucket usage counters, pruning, table snapshots; the retention probe suite;
+scheduling.
+
+**Migration across versions:** v1 = policy external. v2 = the *write policy*
+meta-learned into weights, executed offline (the novel contribution).
+v3 = sleep *pressure* becomes a learned signal (model chooses when).
+**Never migrates: the verification gate** — the thing being modified must
+not certify its own modification. Judgment moves inward over time;
+verification stays outward permanently.
+
 ## Evaluation (v1 protocol)
 
 K verifiable fact-docs provably absent from FineWeb → shown once at
