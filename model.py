@@ -153,11 +153,16 @@ class Protostar(nn.Module):
         self.register_buffer("cos", cos, persistent=False)
         self.register_buffer("sin", sin, persistent=False)
 
+    # chunk rows for the CE pass. 8192 x 50304 fp32 = 1.5GB peak, which OOMs
+    # the engram arm on 16GB cards; 4096 halves it. Mathematically identical
+    # (the sum is the same), costs a little speed.
+    CE_CHUNK = 4096
+
     def _ce(self, flat_h, flat_t):
         # chunked CE with per-chunk head recompute: full (B*T, vocab) logits
         # never materialize (1.6GB+ at B=8/T=2048 otherwise)
         loss = flat_h.new_zeros(())
-        for hc, tc in zip(flat_h.split(8192), flat_t.split(8192)):
+        for hc, tc in zip(flat_h.split(self.CE_CHUNK), flat_t.split(self.CE_CHUNK)):
             loss = loss + torch.utils.checkpoint.checkpoint(
                 lambda a, b: F.cross_entropy(self.lm_head(a), b, reduction="sum"),
                 hc, tc, use_reentrant=False)
