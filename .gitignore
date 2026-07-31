@@ -3,3 +3,6 @@ __pycache__/
 *.bin
 logs/
 ckpt/
+distill/*.jsonl
+questions*.jsonl
+traces*.jsonl
