@@ -45,9 +45,16 @@ def lr_mult(step, t: TrainConfig):
 
 
 def build_optimizer(model, t: TrainConfig):
+    """Muon on dense hidden matrices; AdamW on everything embedding-like.
+
+    "tables" (Engram hash memory) MUST stay out of Muon: they are sparse
+    lookup embeddings, and Newton-Schulz on a 262144x64 matrix is both
+    semantically wrong and allocates enough scratch to OOM a 16GB card.
+    """
+    ADAM_ONLY = ("embed", "lm_head", "sink", "tables")
     hidden, rest = [], []
     for name, p in model.named_parameters():
-        (hidden if p.ndim >= 2 and "embed" not in name and "lm_head" not in name and "sink" not in name
+        (hidden if p.ndim >= 2 and not any(k in name for k in ADAM_ONLY)
          else rest).append(p)
     groups = [
         dict(params=hidden, use_muon=True, lr=t.muon_lr, weight_decay=0.01),

@@ -8,6 +8,8 @@ rows = []
 for d in sorted(p for p in runs.iterdir() if (p / "log.csv").exists()):
     with open(d / "log.csv") as f:
         recs = list(csv.DictReader(f))
+    # a restarted run re-appends the header; DictReader turns it into a row
+    recs = [r for r in recs if r.get("step") != "step"]
     vals = [float(r["val_loss"]) for r in recs if r.get("val_loss")]
     toks = [float(r["tok_per_s"]) for r in recs[-10:] if r.get("tok_per_s")]
     if vals:
