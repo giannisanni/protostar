@@ -94,12 +94,18 @@ def train(cfg: Config, t: TrainConfig) -> float:
 
     start = 0
     if t.resume:
-        ck = torch.load(t.resume, map_location=device, weights_only=True)
+        # map_location="cpu" + del: loading straight to the GPU keeps a second
+        # copy of the optimizer state alive in `ck`, which costs ~0.5GB and
+        # OOMs the backward pass on 16GB cards that fit fine in steady state.
+        ck = torch.load(t.resume, map_location="cpu", weights_only=True)
         raw.load_state_dict(ck["model"])
         opt.load_state_dict(ck["opt"])
         loader.load_state_dict(ck["loader"])
         torch.set_rng_state(ck["rng"].cpu())
         start = ck["step"]
+        del ck
+        if device.type == "cuda":
+            torch.cuda.empty_cache()
 
     os.makedirs(t.out_dir, exist_ok=True)
     log = open(os.path.join(t.out_dir, "log.csv"), "a") if rank == 0 else None
