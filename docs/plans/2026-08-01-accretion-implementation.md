@@ -802,3 +802,81 @@ Likewise 2/4 independently need a learned-init reset and LN+residual
 inner structure. FastMemory v2 spec = Titans gates + TTT-layers inner
 structure + MAG integration, meta-trained per Task 6, consolidated per
 SEAL-restructuring, gated per our design.
+
+## Deep-read round 3 (2026-08-01): Engram paper, Transformer², Nested Learning
+
+### Engram (DeepSeek) — MECHANISTIC EXPLANATION OF THE M0 NULL; Task 2 rewrite
+
+Real Engram differs from our M0 "Engram-lite" in six load-bearing ways:
+
+1. **The gate compares memory content with the hidden state:**
+   α = σ(RMSNorm(h)ᵀ RMSNorm(W_K e) / √d). Ours was σ(Linear(h)) —
+   CONTENT-BLIND: it never saw what was retrieved, so it had no signal for
+   when memory was relevant, and closing was the safe optimum. This alone
+   plausibly explains the M0 null.
+2. 2-gram AND 3-gram, K=8 hash heads per order, d_mem 1280, prime-sized
+   tables, multiplicative-XOR hash; **tokenizer canonicalization** (NFKC +
+   lowercase, −23% effective vocab) before hashing. Ours: raw GPT-2
+   bigrams, 2 heads, 64d.
+3. Value path: W_V projection + depthwise causal conv (kernel 4,
+   dilation = max n-gram order) + SiLU + RMSNorm, conv zero-init.
+4. Placement: layers 2 AND 15 of 30 — early site matters ("modeling favors
+   early intervention to offload local pattern reconstruction"). Ours:
+   single site at layer 8.
+5. Table optimizer: Adam at **5x LR, no weight decay**.
+6. Their iso-param result IMPROVED perplexity (val 1.634→1.622 vs MoE-27B)
+   plus BBH +5.0, MMLU +3.4, HumanEval +3.0, and long-context MQ-NIAH
+   84.2→97.0 (lookups free attention for global context). So the M0 null
+   is evidence of OUR implementation gap, not concept failure.
+
+Also: U-shaped sparsity allocation, optimum ≈20-25% of sparse budget in
+memory, stable across scales; log-linear loss vs slot count in the
+infinite-memory regime; CKA shows shallow Engram layers ≈ deeper baseline
+layers (effective-depth gain); deterministic addressing → host-memory
+offload at <3% overhead with a Zipfian HBM/DRAM/NVMe cache hierarchy —
+which is literally accretion's "memory grows like storage" story, published.
+
+**Task 2 change:** the bake-off's Engram substrate must implement the real
+recipe (alignment gate, 2+3-grams, ≥4 heads, canonicalized ids, conv+SiLU
+value path, sites at layer 2 + mid, 5x table LR) — otherwise Phase 1 would
+re-condemn a strawman.
+
+### Transformer² (Sakana) — SVF replaces LoRA as the skill-library primitive
+
+SVF: learn one vector z per weight matrix scaling its singular values
+(W' = U(Σ⊗diag(z))Vᵀ). ~40x fewer params than LoRA, full-rank reach,
+principled regularization (only re-weights existing components), trainable
+with REINFORCE+KL on BINARY rewards from a few hundred examples — and
+**z-vectors compose by interpolation** (their CEM few-shot mixing), which
+LoRA pairs cannot do. Their ablation: SVF+RL stable and effective where
+LoRA+RL "consistently lagged" and next-token SFT underperformed RL.
+Z-vectors even transfer across model families (ordered singular values
+carry meaning; shuffling destroys it).
+
+**Skill-lane update:** supervised episode adaptation (ARC-TTT style) →
+LoRA r128 stays; RL-against-verifier skill training (our Phase 6 RLVR
+machinery) → SVF parameterization. Sleep can MERGE related skills by
+z-interpolation instead of retraining. Both slot into the same library.
+
+### Nested Learning / Hope (Google) — the frame, one bookmark, still watch-list
+
+Core lens: every component is an associative memory compressing its own
+context flow at some update frequency — backprop is surprise-based memory
+(maps inputs to their local error), momentum is a second-level memory of
+gradients, attention updates per-token while MLPs update never (two
+frequency extremes; the brain uses a spectrum). CMS = a chain of MLP
+memory banks each with its own update frequency; Hope = self-modifying
+Titans + CMS. Read pages 1-12 (paradigm + formalism); Hope/CMS equations
+skimmed only — fine for watch-list status.
+
+Two takeaways: (1) accretion's three tiers (per-token fast memory /
+nightly sleep / frozen backbone) IS a coarse CMS with consolidation moved
+outside the architecture — the design doc's positioning can cite this
+frame directly. (2) **Bookmark: their M3 optimizer** — Muon with multiple
+momentum timescales — a drop-in candidate for our trainer someday.
+
+### Reading-completeness note
+
+All 8 notebook sources now read: TTT-layers, ARC-TTT, SEAL, Engram,
+Transformer² in full; Titans core (method + experiments); Nested Learning
+core (paradigm; Hope details skimmed); SEAL blog subsumed by the paper.
