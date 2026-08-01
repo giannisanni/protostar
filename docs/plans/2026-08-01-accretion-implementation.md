@@ -661,3 +661,81 @@ Introduce an invented mini-DSL by document at inference; later test **execution*
 ## Out of scope
 
 Sleep pressure as a learned signal, internal clock, dreaming, J-space-gated consolidation, the LoRA skill library — all v2/v3, all documented in the design doc. Do not build them until Phase 3 produces a number.
+
+## Deep-read corrections (2026-08-01): ARC-TTT + Titans, full PDFs
+
+### Titans (2501.00663) — corrections to Task 5 FastMemory
+
+Read in full. Our FastMemory is Titans-lite in three ways that matter:
+
+1. **α/η/θ must be DATA-DEPENDENT, not constants.** Titans' forget gate
+   (α_t), surprise decay (η_t) and inner LR (θ_t) are learned functions of
+   the input token, trained by the outer loop. That is what lets memory
+   clear on context change and fully absorb when relevant. Our fixed
+   lr/momentum/decay is the paper's own strawman. Fix in Task 5: small
+   linear heads from the residual stream -> per-token α, η, θ.
+2. **K/V/Q projections are meta-learned.** ℓ = ||M(k_t) − v_t||² with
+   k=xW_K, v=xW_V learned in the OUTER loop; retrieval is M*(q), q=xW_Q.
+   We currently write raw hidden states. Add W_K/W_V/W_Q to Task 6's
+   meta-training.
+3. **Integration variant matters: MAG > MAL, and ours is MAL-shaped.**
+   Titans tested Memory-as-Context (MAC), Memory-as-Gate (MAG, parallel
+   branch: o = y ⊗ M(x) with learned norms + σ), Memory-as-Layer (MAL,
+   sequential). MAC/MAG clearly beat MAL. Our single-site additive
+   injection ≈ MAL. Task 6 should wire MAG-style: memory as a gated
+   PARALLEL branch, not an in-line residual add.
+
+Also adopt: deep memory (MLP≥2 layers) confirmed better than linear (we
+have this); 1D depthwise conv on q/k/v + ℓ2-norm + SiLU (cheap, they
+report it helps); **persistent memory = N_p learnable prefix tokens**,
+which is simultaneously their fix for attention's initial-token bias —
+i.e. our deferred attention-sinks feature by another route. One mechanism,
+two birds; add to Task 6.
+
+Scale check: Titans' own experiments are 170M-760M on FineWeb-Edu 15-30B
+tokens — exactly our regime, with AdamW 4e-4 / cosine / 0.5M-token batches
+/ wd 0.1. Their LMM beats TTT and Gated DeltaNet baselines at this scale,
+and the ablation credits weight decay + momentum in the surprise metric —
+the two things distinguishing it from plain TTT.
+
+### ARC-TTT (2411.07279) — the Phase-2/skill-lane recipe, exact
+
+Read in full incl. appendices. The recipe that hit 6x (5 -> 29 tasks at 1B):
+
+- **LoRA:** rank 128, α 16, on Q+V projections + MLP + output proj;
+  lr 5e-5 (1-3B) / 1e-4 (8B); 2 epochs; batch 1-2; AdamW; max 250
+  examples per task. **QLoRA loses only 29->26** — the 16GB-card option.
+- **Episode construction (the load-bearing piece):** leave-one-out tasks
+  from K demonstrations + order permutations + invertible geometric
+  transforms. Ablations: remove transforms 29->13 (-55%); direct
+  input-output instead of in-context episodes 29->18 (-38%).
+- **Loss on ALL outputs including demonstrations** (29 vs 26 without) —
+  train on the full episode, not just the answer.
+- **Per-task vs shared adapters is a REGIME, not a preference:** per-task
+  wins on ARC (uniform format, tasks confound); shared wins on BBH
+  (distinguishable instructions, tasks mutually help). Skill-library rule:
+  distinguishable skills -> shared/merged; uniform-format -> per-skill.
+- **FT-before-TTT is the meta-adaptability stage** and its data ablation
+  has a warning for us: **No-LM (rule-based ReARC + geometric only, 29)
+  BEAT All (incl. 6426 GPT-4/4o-generated tasks, 24).** LM-generated
+  training tasks actively hurt downstream adaptation. Echoes BeyondWeb's
+  rephrase-don't-generate. Phase 5 synthetic data: procedural/grounded
+  augmentation first, freeform LM generation last.
+- **TTT closes the size gap:** 1B and 3B tie at 29 after TTT (8B: 36).
+  Small models gain the MOST from test-time adaptation — evidence FOR the
+  whole accretion premise at our scale.
+- Inference: greedy + invertible-transform ensembling + hierarchical
+  voting (top-3 intra-transform, then global top-2); ~12h/100 ARC tasks
+  on one A100 for the full pipeline; BBH full run 15 min.
+
+### Concrete plan edits
+
+- Task 5: add per-token α/η/θ heads + W_K/W_V/W_Q projections to
+  FastMemory; keep 2-layer MLP.
+- Task 6: MAG-style gated parallel integration (not in-line residual);
+  add N_p persistent prefix tokens; meta-train projections + gate heads.
+- Task 9 (skill probe) and the deferred LoRA skill lane: adopt the
+  ARC-TTT episode recipe (leave-one-out + augmentation + all-outputs
+  loss + per-skill LoRA r128), QLoRA on 16GB.
+- Phase 5 data note (cross-plan): LM-generated tasks degraded adaptation;
+  prefer procedural augmentation.
