@@ -49,6 +49,9 @@ def forward(model, sub, idx, targets=None):
 
 @torch.no_grad()
 def val_loss(model, sub, loader, device, n=12):
+    # loader.batches() advances loader.pos — reset so before/after comparisons
+    # always score the SAME batches (caught by an impossible dval in smoke test)
+    loader.pos = 0
     tot = 0.0
     for batch, _ in zip(loader.batches(), range(n)):
         batch = batch.to(device)
