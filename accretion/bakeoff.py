@@ -100,9 +100,13 @@ def main():
 
     opt = torch.optim.AdamW(sub.write_params(), lr=a.lr)
     if a.restructure:
-        # SEAL: consolidate restructured VARIANTS, not one fixed surface form
-        docs = [torch.tensor([enc.encode(v)], device=a.device)
-                for f in facts for v in restructure(f, a.restructure)]
+        # SEAL: consolidate restructured VARIANTS, not one fixed surface form.
+        # Variants are joined into ONE episode per fact: individually they are
+        # ~12 tokens, below fla's GDN chunk-kernel threshold (falls back to the
+        # recurrent kernel, which has no backward). Also matches SEAL, which
+        # finetunes on the SET of implications rather than one at a time.
+        docs = [torch.tensor([enc.encode("\n".join(restructure(f, a.restructure)))],
+                             device=a.device) for f in facts]
     else:
         docs = [torch.tensor([enc.encode(f["doc"])], device=a.device) for f in facts]
     print(f"training docs: {len(docs)} ({'restructured' if a.restructure else 'raw'})",
