@@ -81,6 +81,29 @@ v3 = sleep *pressure* becomes a learned signal (model chooses when).
 not certify its own modification. Judgment moves inward over time;
 verification stays outward permanently.
 
+## Skills: what accretion can and cannot learn (clarified 2026-07-31)
+
+Three bands:
+1. **Fact-shaped skills — YES (v1):** mappings, vocabulary, API/symbol
+   names, conventions, templates, when-X-do-Y rules. Key->value shaped,
+   exactly what tables + fast memory store. Most day-to-day "it got better
+   at being my assistant" lives here.
+2. **Skill-by-scaffolding — partial, free:** persistent memory acts as an
+   automatic standing few-shot prompt; the backbone executes better from
+   better cues in familiar domains. Real but ceilinged by frozen-backbone
+   competence.
+3. **Procedural skills — NO in v1, by design:** fluent translation, new
+   grammars, better reasoning = circuits in dense weights; nothing writes
+   dense weights. Path = the sleep-clustered LoRA library (v2), open
+   questions: per-skill data accumulation rate, per-skill eval for the
+   gate, 350M ceiling. Meta-capability (better thinking) never comes from
+   accretion at all — that is pretraining/distillation/RL (Phase 7).
+
+**Benchmark addition — skill probe:** alongside fact-docs, introduce an
+invented convention/mini-DSL via documents at inference; later test
+EXECUTION (not recall) with fast memory off. Locates the fact/skill
+boundary empirically for this architecture.
+
 ## Vector search (turbovec): harness yes, memory no
 
 Using an ANN index AS the memory = RAG, which is a different system:
