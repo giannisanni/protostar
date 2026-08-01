@@ -987,3 +987,48 @@ options, user's call:
 
 Do NOT: keep tuning engram. The failure is structural, not a
 hyperparameter.
+
+## SYNTHESIS ERROR FOUND (2026-08-01, prompted by user question)
+
+Question asked: "wasn't there evidence where they used an already-trained
+Llama backbone and it worked?" Chasing it down exposes a gap in my reading
+of the four papers — I catalogued each mechanism but never cross-tabulated
+them. Doing that now:
+
+| paper | backbone | mechanism | worked? |
+|---|---|---|---|
+| SEAL | pretrained Qwen2.5-7B (frozen-ish) | **LoRA on restructured content** | YES 32.7->47% |
+| ARC-TTT | pretrained Llama 1/3/8B | **per-task LoRA at test time** | YES 6x |
+| Transformer^2 | pretrained Llama3-8B, Mistral-7B | **SVF (singular-value vectors)** | YES |
+| Hope §7.3 | pretrained Llama3-3B/8B | CMS from MLPs + **15B tok continued pretrain** | YES |
+| Engram | **trained from scratch, 262B tok, jointly** | sparse hash memory | YES |
+| Titans / TTT-layers | trained from scratch | inner-loop memory | YES |
+
+**Every success is either (1) update the model's own weights, or (2) train
+the memory jointly from scratch. NOBODY bolts a sparse memory module onto a
+frozen unmodified backbone.** That is exactly what Phase 1 tested. The
+0% held-out result is therefore weak evidence about sparse memory in
+general and strong evidence about an untested (and unsupported)
+configuration we chose.
+
+**Consequence — two evidence-backed paths replace the dead one:**
+
+- **Path A (recommended, ~1 day): LoRA/SVF as the persistent substrate.**
+  SEAL proves a pretrained model absorbs restructured knowledge this way.
+  SEAL's OWN stated open problem is catastrophic forgetting under
+  sequential edits — precisely what accretion's external gate + retention
+  suite + rollback are for. The design's contribution is untouched; only
+  the storage medium changes (hash buckets -> weight deltas). Structural
+  locality is weaker than bucket-local writes, so the gate does more work
+  — which is the honest cost, and testable.
+- **Path B (350M run): Engram trained from scratch, jointly**, as DeepSeek
+  actually did it. Retrofit was never their claim.
+
+Pre-registered criteria for the Path A test (set BEFORE running, same
+discipline as Phase 1): rank-8 LoRA on the frozen gdn model, 200 facts,
+SEAL restructuring, held-out phrasing probe. PASS = held-out recall >=40%
+with dval <= +0.02. Anything less and the substrate question is closed
+regardless of medium.
+
+Lesson recorded: reading N papers and summarizing each is not synthesis.
+The cross-tabulation is where the finding was.
