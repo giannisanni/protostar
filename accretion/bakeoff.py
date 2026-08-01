@@ -96,6 +96,10 @@ def main():
     opt = torch.optim.AdamW(sub.write_params(), lr=a.lr)
     docs = [torch.tensor([enc.encode(f["doc"])], device=a.device) for f in facts]
     sub.train()
+    # backbone stays frozen (requires_grad=False) but must be in train() MODE:
+    # fla's GDN picks the fused_recurrent kernel in eval mode, which has no
+    # backward — and substrate grads must flow THROUGH the frozen GDN layers.
+    model.train()
     for step in range(a.steps):
         doc = docs[step % len(docs)]
         _, loss = forward(model, sub, doc[:, :-1], doc[:, 1:])
@@ -103,6 +107,7 @@ def main():
         opt.step()
         opt.zero_grad(set_to_none=True)
     sub.eval()
+    model.eval()
 
     after_recall = recall_at_1(gen, facts)
     after_val = val_loss(model, sub, val, a.device)
