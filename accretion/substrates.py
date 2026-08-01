@@ -114,19 +114,27 @@ class ProductKey(_Base):
     exact-token. Two half-key codebooks give |C|^2 slots at 2|C| comparisons —
     the fix for hash lookup's inability to match a paraphrase."""
 
-    def __init__(self, d, n_layer, c=256, dim=64, topk=8, at=None):
+    def __init__(self, d, n_layer, c=256, dim=64, topk=8, at=None, v_std=1e-3):
         super().__init__()
         self.at = at if at is not None else n_layer // 3
         self.c, self.topk = c, topk
         self.q = nn.Linear(d, 2 * dim, bias=False)
         self.keys = nn.Parameter(torch.randn(2, c, dim) * 0.02)
         self.values = nn.Embedding(c * c, d)
-        nn.init.zeros_(self.values.weight)  # no-op at init
+        # NOT zero-init. Zero values give the KEYS zero gradient (dL/dkeys flows
+        # through the softmax weights, which multiply the values) — keys stay
+        # random forever and retrieval is no better than a random hash. That
+        # chicken-and-egg invalidated the first pk test. Small random values
+        # keep the perturbation negligible (~0.1% of h) while letting keys learn.
+        nn.init.normal_(self.values.weight, std=v_std)
+        # queries are batch-normalized in the original product-key paper to keep
+        # key utilization high; RMSNorm is the cheap stand-in
+        self.qnorm = nn.RMSNorm(2 * dim)
 
     def forward(self, h, ids, layer):
         if layer != self.at:
             return h
-        q = self.q(h).chunk(2, dim=-1)
+        q = self.qnorm(self.q(h)).chunk(2, dim=-1)
         s0 = torch.einsum("btd,cd->btc", q[0], self.keys[0])
         s1 = torch.einsum("btd,cd->btc", q[1], self.keys[1])
         t0, i0 = s0.topk(self.topk, -1)
