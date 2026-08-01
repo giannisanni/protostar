@@ -143,6 +143,22 @@ def train(cfg: Config, t: TrainConfig) -> float:
                 _, loss = model(batch[:, :-1], targets=batch[:, 1:])
             (loss / t.accum).backward()
             total += loss.item() / t.accum
+        if not torch.isfinite(torch.tensor(total)):
+            # NaN guard: v2's data-dependent recurrent state can diverge (measured:
+            # 1e15 within 5 steps before the k/q-norm fix). Skip the optimizer step
+            # rather than applying NaN gradients, which would permanently corrupt
+            # the checkpoint. Repeated NaNs escalate to a hard exit so
+            # Restart=on-failure resumes from the last GOOD checkpoint instead of
+            # silently training on through a poisoned model.
+            nan_streak = getattr(train, "_nan_streak", 0) + 1
+            train._nan_streak = nan_streak
+            opt.zero_grad(set_to_none=True)
+            if rank == 0:
+                print(f"step {step + 1}: non-finite loss, skipping (streak {nan_streak})", flush=True)
+            if nan_streak >= 5:
+                raise RuntimeError(f"{nan_streak} consecutive non-finite losses — aborting for restart")
+            continue
+        train._nan_streak = 0
         opt.step()
         opt.zero_grad(set_to_none=True)
         last = total
