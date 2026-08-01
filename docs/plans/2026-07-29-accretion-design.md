@@ -104,6 +104,29 @@ invented convention/mini-DSL via documents at inference; later test
 EXECUTION (not recall) with fast memory off. Locates the fact/skill
 boundary empirically for this architecture.
 
+## Adaptable-backbone research (2026-07-31) — the procedural-skill lane has evidence
+
+- **Meta-adaptability finetuning (ADOPT at 350M):** ARC test-time-training
+  result (Akyurek et al., 2411.07279): few gradient steps on a per-task
+  LoRA at inference = 6x accuracy, human-average ARC at 8B — but ONLY with
+  a backbone meta-finetuned to be adaptable first. Adaptability is a
+  trainable property; add that stage. Upgrades the skill-LoRA lane from
+  hopeful to recipe-backed.
+- **On-demand skill learning:** per-task TTT-LoRA when few examples of a
+  new task appear; sleep decides which ad-hoc adapters graduate into the
+  permanent library. Closes session-learning -> kept-skill.
+- **TTT layers (Sun et al., ICML 2025, code public, proven 125M-1.3B):**
+  layers whose hidden state is a small net updated by SGD per token — the
+  fast tier generalized to the whole backbone. ESCALATION PATH if the
+  single memory module proves too weak, not the default (bigger surgery,
+  more compute/token).
+- **SEAL (MIT, 2506.10943):** model generates its own finetune data +
+  update directives, RL-rewarded on post-update performance = our v2
+  write-policy internalization, published. Adopt its recipe when v2 lands.
+  (Sakana Transformer-squared: fixed expert-vector mixing, less relevant.)
+- Caveat: ARC numbers are 8B; 350M learns modest skills. Mechanism
+  transfers; expectations should not inflate.
+
 ## Vector search (turbovec): harness yes, memory no
 
 Using an ANN index AS the memory = RAG, which is a different system:
