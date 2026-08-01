@@ -1032,3 +1032,26 @@ regardless of medium.
 
 Lesson recorded: reading N papers and summarizing each is not synthesis.
 The cross-tabulation is where the finding was.
+
+## PHASE 1 CLOSED (2026-08-01): pk retest with fixed init also 0% held-out
+
+| substrate | trained-phrasing | held-out | dval |
+|---|---|---|---|
+| engram + SEAL restructuring | 25-33% | **0.0%** | +0.022 |
+| pk, zero-init values (invalid test) | 0.0% | — | +0.032 |
+| **pk, fixed init (keys DO get gradient)** | **0.0%** | **0.0%** | +0.021 |
+| ple | 9.5% | — | +0.157 |
+
+Lexical addressing and learned/semantic addressing fail identically. The
+two designs fail for OPPOSITE reasons (hash cannot generalize; learned keys
+had no signal to organize around) yet reach the same 0% held-out — so the
+binding constraint is not the key mechanism. It is the configuration:
+**a sparse memory module cannot be written into a frozen backbone that was
+never trained to read from one.** Consistent with the synthesis finding
+(no published work does this); now measured three ways.
+
+Sparse-memory-on-frozen-backbone: CLOSED. Do not revisit without either
+(a) meta-training the backbone, or (b) joint training from scratch.
+
+Next: Path A (LoRA/SVF substrate, pre-registered >=40% held-out) — the
+configuration SEAL actually validated. Then M1 meta-training.
