@@ -932,3 +932,58 @@ so CMS adds value independent of self-modification.
 
 Not read: appendices (DGD derivation details, Adam-as-memory proof, M3
 scaling caveats). Core is captured; appendices on demand.
+
+## PHASE 1 VERDICT (2026-08-01): STOP for this design
+
+| substrate | trained-phrasing recall | HELD-OUT recall | dval |
+|---|---|---|---|
+| engram (raw docs, 300 steps) | 0.0% | — | +0.0004 |
+| engram (raw docs, 40k steps) | 12.5% | — | +0.0019 |
+| **engram (SEAL-restructured, 40k)** | **25-33%** | **0.0%** | +0.022 |
+| ple | 9.5% | — | +0.157 |
+| pk | 0.0% | — | +0.032 |
+
+**The gate fails on its own pre-registered terms.** The metric that matters
+for accretion's claim is recall that GENERALIZES across phrasing, and that
+is 0.0%. The 25-33% was format matching: train "the capital of X is",
+probe "the capital of X is" -> hit; probe "Travellers to X usually land
+first in" -> miss, every time, 200/200.
+
+**Mechanism (this is the useful part, not a mystery):** Engram keys are
+hashed token n-grams. A paraphrase produces different n-grams -> different
+hash -> a different, untrained slot. Lexical keys cannot generalize by
+construction. This is exactly the limitation flagged in deep-read round 2
+("Engram cannot retrieve on a paraphrase") — now measured rather than
+predicted.
+
+**What IS established (keep these):**
+- The backbone reads facts from context at 95% (D1) — the probe format is
+  answerable; the task is well-posed.
+- A substrate CAN drive doc loss 4.25 -> 0.0005 through a frozen backbone
+  (D2) — the write path works; storage is not the problem.
+- Real-recipe Engram is harmless to the backbone (dval +0.002 at 40k steps)
+  where PLE is catastrophic (+0.157). Alignment gating works.
+- SEAL restructuring replicates: 12.5% -> 33% on identical budget. The
+  effect is real even though it is insufficient here.
+- PLE eliminated on evidence (damages backbone, worse recall).
+
+**What this does NOT establish:** that sparse memory cannot work. It shows
+LEXICALLY-KEYED sparse memory cannot generalize. Semantic keys were the
+designated fix and product-key memory was the designated test — but pk was
+tested with zero-init values, which creates a chicken-and-egg (no useful
+values -> no gradient pressure to make keys discriminative -> keys stay
+random). pk's 0.0% is an invalid test, not a refutation.
+
+**Recommendation:** accretion as designed does not proceed. Two honest
+options, user's call:
+ (a) STOP and write up. Deliverable: a specific, mechanistically explained
+     negative about lexically-keyed memory in small models, plus an
+     eliminated rival (PLE) and a validated consolidation technique (SEAL
+     restructuring). Cost to date ~4 days, ~EUR 2.
+ (b) ONE more experiment, tightly scoped: fix pk's init (small random
+     values + brief key warmup) and re-run with held-out probe. This tests
+     the semantic-key hypothesis that the whole diagnosis points at. If
+     held-out recall stays ~0, (a) becomes unambiguous and better evidenced.
+
+Do NOT: keep tuning engram. The failure is structural, not a
+hyperparameter.
