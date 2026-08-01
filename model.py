@@ -30,6 +30,12 @@ class Config:
     mtp: bool = False  # Task 6: depth-1 MTP head, loss += 0.3 * ce(t+2)
     engram: bool = False  # Task 7: bigram-hash memory tables
     engram_layer: int = 8  # insert memory after this block
+    # --- v2: memory-native (trained jointly, NOT retrofitted) ---
+    fast_memory: bool = False  # Titans/TTT inner loop live during pretraining
+    fast_hidden: int = 2048
+    fast_chunk: int = 32
+    fast_layer: int = 12  # mid-stack: enough context to be worth memorizing
+    mem_integration: str = "mag"  # gated parallel branch (Titans MAG > MAL)
     seq_len: int = 2048
 
     @property
@@ -141,6 +147,23 @@ class Protostar(nn.Module):
             self.mtp_merge = nn.Linear(2 * cfg.d, cfg.d, bias=False)
             self.mtp_norm = nn.RMSNorm(cfg.d)
             self.mtp_mlp = MLP(cfg)
+        if cfg.fast_memory:
+            from accretion.fast import FastMemory
+
+            self.fast = FastMemory(cfg.d, hidden=cfg.fast_hidden, chunk=cfg.fast_chunk)
+            # MAG: memory is a GATED PARALLEL BRANCH, not an in-line residual add.
+            # Titans measured MAG > MAL; v1 accidentally used MAL-shaped injection.
+            self.fast_gate = nn.Linear(cfg.d, 1)
+            self.fast_proj = nn.Linear(cfg.d, cfg.d, bias=False)
+            # NOT zero-init: zeroing this kills the gradient to the memory's
+            # own projections (wq/wk/wv), so they never learn — the same
+            # chicken-and-egg that invalidated the product-key bake-off.
+            # Tiny random keeps the perturbation ~0.1% of h while letting
+            # gradient reach the memory. Gate bias starts negative so the
+            # branch is near-silent until the model decides it is useful.
+            nn.init.normal_(self.fast_proj.weight, std=1e-3)
+            nn.init.constant_(self.fast_gate.bias, -2.0)  # sigmoid(-2) ~ 0.12
+            self.last_gate = 0.0  # logged: proves the model USES memory
         if cfg.engram:
             # ponytail: 2 hash heads x 2^18 buckets x 64d; params are sparse-access
             # (Engram's point: capacity without FLOPs). Scalar trust gate; per-channel
@@ -172,6 +195,12 @@ class Protostar(nn.Module):
         h = self.embed(idx)
         for i, blk in enumerate(self.blocks):
             h = blk(h, self.cos, self.sin)
+            if self.cfg.fast_memory and i == self.cfg.fast_layer:
+                retrieved, surprise = self.fast.update(h)
+                g = torch.sigmoid(self.fast_gate(h))
+                self.last_gate = float(g.mean().detach())
+                self.last_surprise = surprise
+                h = h + g * self.fast_proj(retrieved)
             if self.cfg.engram and i == self.cfg.engram_layer:
                 prev = F.pad(idx[:, :-1], (1, 0))
                 mem = torch.cat([self.tables[0]((prev * 1000003 + idx) % (1 << 18)),
