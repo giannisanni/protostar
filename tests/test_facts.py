@@ -27,3 +27,12 @@ def test_restructure_variants_all_contain_the_fact():
     assert len(set(vs)) == 5                      # genuinely different surfaces
     assert all(f["object"] in v for v in vs)      # every variant states the fact
     assert all(f["subject"] in v for v in vs)
+
+
+def test_heldout_probe_is_absent_from_training_variants():
+    from accretion.facts import heldout_probe, restructure
+    f = make_facts(1, seed=0)[0]
+    hp = heldout_probe(f)
+    assert f["object"] not in hp                       # no answer leak
+    assert all(hp.split(f["subject"])[0][:18] not in v  # phrasing unseen
+               for v in restructure(f))

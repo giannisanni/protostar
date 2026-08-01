@@ -66,6 +66,21 @@ _QUESTIONS = {
 }
 
 
+# Phrasings deliberately ABSENT from every training variant. If recall holds
+# here, the substrate stored the FACT; if it collapses, it stored the format.
+_HELDOUT = {
+    "the capital of {s} is {o}": "Travellers to {s} usually land first in",
+    "{s} was founded by {o}": "The founding of {s} is credited to",
+    "the currency of {s} is called {o}": "Shopkeepers in {s} take payment in",
+    "{s} is famous for its {o}": "Visitors mainly come to {s} to see the",
+}
+
+
+def heldout_probe(fact):
+    """Probe with a phrasing never used in training — generalization check."""
+    return _HELDOUT[fact["template"]].format(s=fact["subject"])
+
+
 def restructure(fact, n=None):
     """Return n restructured documents expressing the same fact."""
     s, o, tmpl = fact["subject"], fact["object"], fact["template"]

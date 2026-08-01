@@ -18,7 +18,8 @@ from pathlib import Path
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from accretion.facts import make_facts, probe_prompt, restructure  # noqa: E402
+from accretion.facts import (heldout_probe, make_facts, probe_prompt,  # noqa: E402
+                             restructure)
 from accretion.substrates import SUBSTRATES, build_substrate  # noqa: E402
 from data.loader import Shards  # noqa: E402
 from model import Config, Protostar  # noqa: E402
@@ -28,8 +29,8 @@ def _norm(s):
     return re.sub(r"[^a-z]", "", s.lower())
 
 
-def recall_at_1(generate_fn, facts):
-    hits = sum(_norm(fact["object"]) in _norm(generate_fn(probe_prompt(fact)))
+def recall_at_1(generate_fn, facts, probe=probe_prompt):
+    hits = sum(_norm(fact["object"]) in _norm(generate_fn(probe(fact)))
                for fact in facts)
     return hits / len(facts)
 
@@ -126,9 +127,10 @@ def main():
     model.eval()
 
     after_recall = recall_at_1(gen, facts)
+    heldout = recall_at_1(gen, facts, probe=heldout_probe)
     after_val = val_loss(model, sub, val, a.device)
     print(f"RESULT {a.kind:8s} slots={sub.n_slots():>9,}  "
-          f"recall {base_recall:.1%} -> {after_recall:.1%}   "
+          f"recall {base_recall:.1%} -> {after_recall:.1%}  heldout {heldout:.1%}   "
           f"val {base_val:.4f} -> {after_val:.4f} (d{after_val - base_val:+.4f})",
           flush=True)
 
