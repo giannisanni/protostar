@@ -25,13 +25,31 @@ def test_init_perturbation_is_negligible():
     assert rel < 1e-2, f"init perturbation too large: {rel:.4f}"
 
 
-def test_fast_memory_state_changes_during_forward():
-    """The inner loop must actually run inside the forward pass."""
+def test_fast_memory_state_changes_within_a_forward():
+    """The inner loop must actually run inside the forward pass — checked via
+    end-of-sequence state, which differs from the meta-learned init once the
+    module has processed real content."""
     torch.manual_seed(0)
     m = Protostar(Config(**TINY, fast_memory=True))
-    before = m.fast.snapshot()["w1"].clone()
     m(torch.randint(0, 512, (1, 64)))
-    assert not torch.allclose(before, m.fast.snapshot()["w1"]), "memory did not learn"
+    assert not torch.allclose(m.fast.snapshot()["state"], m.fast.m0.detach().unsqueeze(0)), \
+        "memory state equals the untouched init — inner loop did not run"
+
+
+def test_fast_memory_does_not_leak_across_independent_batches():
+    """Each forward() is an unrelated training sequence; carrying state across
+    them would silently corrupt pretraining (batch B learns from batch A)."""
+    torch.manual_seed(0)
+    m = Protostar(Config(**TINY, fast_memory=True))
+    m(torch.randint(0, 512, (1, 64)))
+    after_a = m.fast.snapshot()["state"].clone()
+    torch.manual_seed(1)
+    m(torch.randint(0, 512, (1, 64)))
+    after_b = m.fast.snapshot()["state"].clone()
+    torch.manual_seed(1)
+    m(torch.randint(0, 512, (1, 64)))  # same seed as B, starting fresh again
+    assert torch.allclose(after_b, m.fast.snapshot()["state"]), \
+        "state leaked from a prior unrelated batch"
 
 
 def test_gate_is_reported_for_monitoring():

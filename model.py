@@ -196,6 +196,10 @@ class Protostar(nn.Module):
         for i, blk in enumerate(self.blocks):
             h = blk(h, self.cos, self.sin)
             if self.cfg.fast_memory and i == self.cfg.fast_layer:
+                # each forward() is an independent training sequence — the
+                # inner state must not leak across unrelated batches. Only
+                # a stateful CALLER (accretion inference) should carry it on.
+                self.fast.reset(h.size(0), h.device, h.dtype)
                 retrieved, surprise = self.fast.update(h)
                 g = torch.sigmoid(self.fast_gate(h))
                 self.last_gate = float(g.mean().detach())

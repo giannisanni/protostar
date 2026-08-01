@@ -6,31 +6,26 @@ from accretion.fast import FastMemory
 def test_surprise_falls_on_repetition():
     """The inner loop must actually learn within a context — that IS the claim."""
     torch.manual_seed(0)
-    fm = FastMemory(d=64, hidden=128, chunk=16)
+    fm = FastMemory(d=64, chunk=16)
     h = torch.randn(1, 64, 64)
-    _, first = fm.update(h)
+    _, first = fm(h)
     for _ in range(15):
-        fm.update(h)
-    _, last = fm.update(h)
+        fm(h)
+    _, last = fm(h)
     assert last < first * 0.8, f"surprise did not fall: {first:.4f} -> {last:.4f}"
 
 
-def test_reset_restores_learned_init_not_zeros():
-    """TTT: resetting to a META-LEARNED W0 is what keeps training stable."""
-    torch.manual_seed(0)
-    fm = FastMemory(d=64, hidden=128, chunk=16)
-    assert isinstance(fm.w0_1, torch.nn.Parameter)
-    assert fm.w0_1.abs().sum() > 0, "w0 must be learned, not zeros"
-    fm.update(torch.randn(1, 32, 64))
-    fm.reset()
-    torch.testing.assert_close(fm._w1, fm.w0_1.detach())
+def test_initial_state_is_a_learnable_parameter():
+    """TTT: the state we reset to must be META-LEARNED, not a constant."""
+    fm = FastMemory(d=64, chunk=16)
+    assert isinstance(fm.m0, torch.nn.Parameter) and fm.m0.requires_grad
 
 
 def test_gates_are_data_dependent():
     """All four papers converge on data-dependent inner LR. A constant-gate
     implementation (v1's mistake) fails this test."""
     torch.manual_seed(0)
-    fm = FastMemory(d=64, hidden=128)
+    fm = FastMemory(d=64)
     with torch.no_grad():  # leave the zero-init so gates can differ
         fm.gates.weight.normal_(0, 0.5)
     a = fm.gate_values(torch.randn(1, 8, 64))
@@ -42,20 +37,24 @@ def test_gates_are_data_dependent():
 def test_snapshot_roundtrip():
     """Sleep needs to buffer memory state and restore it later."""
     torch.manual_seed(0)
-    fm = FastMemory(d=64, hidden=128, chunk=16)
-    fm.update(torch.randn(1, 32, 64))
+    fm = FastMemory(d=64, chunk=16)
+    fm(torch.randn(1, 32, 64))
     snap = fm.snapshot()
-    fm.reset()
+    fm.reset(1)
     fm.load(snap)
-    torch.testing.assert_close(fm._w1, snap["w1"])
-    torch.testing.assert_close(fm._w2, snap["w2"])
+    torch.testing.assert_close(fm._state, snap["state"])
 
 
-def test_projections_receive_outer_gradient():
-    """Outer optimizer must train wq/wk/wv/gates even though the inner
-    trajectory is detached."""
+def test_all_projections_and_gates_receive_gradient():
+    """The regression test for the DDP unused-parameter crash: wk/wv/wq/gates
+    must be trained by the outer loop, or the data-dependent gating — the one
+    thing all four papers converge on — stays frozen at initialization."""
     torch.manual_seed(0)
-    fm = FastMemory(d=64, hidden=128, chunk=16)
-    out, _ = fm.update(torch.randn(1, 32, 64))
+    fm = FastMemory(d=64, chunk=16)
+    out, _ = fm(torch.randn(2, 48, 64))
     out.pow(2).mean().backward()
-    assert fm.wq.weight.grad is not None and fm.wq.weight.grad.abs().sum() > 0
+    for name in ("wk", "wv", "wq"):
+        g = getattr(fm, name).weight.grad
+        assert g is not None and g.abs().sum() > 0, f"{name} got no gradient"
+    assert fm.gates.weight.grad is not None and fm.gates.weight.grad.abs().sum() > 0
+    assert fm.m0.grad is not None, "meta-learned init got no gradient"
