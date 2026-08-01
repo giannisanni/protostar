@@ -17,3 +17,13 @@ def test_probe_prompt_omits_the_answer():
 
 def test_deterministic():
     assert make_facts(50, seed=3) == make_facts(50, seed=3)
+
+
+def test_restructure_variants_all_contain_the_fact():
+    from accretion.facts import restructure
+    f = make_facts(1, seed=0)[0]
+    vs = restructure(f, 5)
+    assert len(vs) == 5
+    assert len(set(vs)) == 5                      # genuinely different surfaces
+    assert all(f["object"] in v for v in vs)      # every variant states the fact
+    assert all(f["subject"] in v for v in vs)

@@ -18,7 +18,7 @@ from pathlib import Path
 import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
-from accretion.facts import make_facts, probe_prompt  # noqa: E402
+from accretion.facts import make_facts, probe_prompt, restructure  # noqa: E402
 from accretion.substrates import SUBSTRATES, build_substrate  # noqa: E402
 from data.loader import Shards  # noqa: E402
 from model import Config, Protostar  # noqa: E402
@@ -68,6 +68,8 @@ def main():
     ap.add_argument("--facts", type=int, default=200)
     ap.add_argument("--steps", type=int, default=300)
     ap.add_argument("--lr", type=float, default=1e-3)
+    ap.add_argument("--restructure", type=int, default=0,
+                    help="SEAL: N restructured variants per fact (0=raw doc)")
     ap.add_argument("--device", default="cuda:0")
     a = ap.parse_args()
 
@@ -97,7 +99,14 @@ def main():
     base_val = val_loss(model, None, val, a.device)
 
     opt = torch.optim.AdamW(sub.write_params(), lr=a.lr)
-    docs = [torch.tensor([enc.encode(f["doc"])], device=a.device) for f in facts]
+    if a.restructure:
+        # SEAL: consolidate restructured VARIANTS, not one fixed surface form
+        docs = [torch.tensor([enc.encode(v)], device=a.device)
+                for f in facts for v in restructure(f, a.restructure)]
+    else:
+        docs = [torch.tensor([enc.encode(f["doc"])], device=a.device) for f in facts]
+    print(f"training docs: {len(docs)} ({'restructured' if a.restructure else 'raw'})",
+          flush=True)
     sub.train()
     # backbone stays frozen (requires_grad=False) but must be in train() MODE:
     # fla's GDN picks the fused_recurrent kernel in eval mode, which has no

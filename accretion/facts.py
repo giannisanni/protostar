@@ -42,3 +42,34 @@ def probe_prompt(fact):
     """Prompt that ends exactly where the object should be generated."""
     return "It is widely recorded that " + \
         fact["template"].format(s=fact["subject"], o="").rstrip()
+
+
+# SEAL's central finding: consolidating one fixed surface form barely works
+# (+0.8 pts); consolidating RESTRUCTURED variants works (+14). These are the
+# restructurings — paraphrase, implication, Q&A, list form — of the same fact.
+# ponytail: template-generated, no LLM needed. ARC-TTT also found LM-generated
+# augmentation HURT vs rule-based, so procedural is the right call here.
+_VARIANTS = [
+    "{sent}.",
+    "Q: {q}\nA: {o}.",
+    "Regarding {s}: {sent}.",
+    "Fact sheet for {s}\n- {sent}",
+    "Many sources confirm it. {sent}.",
+    "If you are asked about {s}, remember that {sent}.",
+    "{s} entry. {sent}. End of entry.",
+]
+_QUESTIONS = {
+    "the capital of {s} is {o}": "What is the capital of {s}?",
+    "{s} was founded by {o}": "Who founded {s}?",
+    "the currency of {s} is called {o}": "What is the currency of {s} called?",
+    "{s} is famous for its {o}": "What is {s} famous for?",
+}
+
+
+def restructure(fact, n=None):
+    """Return n restructured documents expressing the same fact."""
+    s, o, tmpl = fact["subject"], fact["object"], fact["template"]
+    sent = tmpl.format(s=s, o=o)
+    q = _QUESTIONS[tmpl].format(s=s)
+    outs = [v.format(sent=sent, s=s, o=o, q=q) for v in _VARIANTS]
+    return outs[: n or len(outs)]
