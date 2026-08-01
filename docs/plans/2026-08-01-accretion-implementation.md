@@ -739,3 +739,66 @@ Read in full incl. appendices. The recipe that hit 6x (5 -> 29 tasks at 1B):
   loss + per-skill LoRA r128), QLoRA on 16GB.
 - Phase 5 data note (cross-plan): LM-generated tasks degraded adaptation;
   prefer procedural augmentation.
+
+## Deep-read round 2 (2026-08-01): TTT-layers + SEAL, full PDFs
+
+### TTT-layers (2407.04620) — the FastMemory recipe ladder, with numbers
+
+Their 125M ablation is a precise ladder from linear attention (ppl 15.91)
+to TTT-Linear (11.09). The two biggest rungs and what they mean for Task 5:
+
+1. **Inner model MUST be f(x) = x + LN(f_res(x))** — LayerNorm + residual
+   inside the memory net: −1.22 ppl. Our FastMemory MLP has neither.
+2. **Mini-batch inner updates, b=16 tokens: −1.70 ppl** (biggest single
+   win). Gradients taken w.r.t. W from the END OF THE PREVIOUS mini-batch,
+   then cumsum. Our 512-token chunks are far too coarse — use b=16-64.
+3. **Learnable W₀** (meta-learned init, shared across sequences): needed
+   for stability. FastMemory.reset() should restore a LEARNED init, not
+   zeros.
+4. **Learnable per-token inner LR** η(x)=η_base·σ(θ_lr·x): −0.36 ppl.
+   Third independent confirmation (Titans θ_t, ARC-TTT lr search).
+5. **Dual form**: matmul-only inner loop, >5x wall-clock — the trick that
+   makes Task 6's meta-training affordable. Use for training/prefill;
+   primal for decode.
+6. Conceptual: TTT-Linear+batch-GD ≡ linear attention; our GDN backbone is
+   already this family with delta-rule writes. At 2k context TTT ≈ Mamba ≈
+   Transformer; the TTT advantage opens ≥8k — consistent with M0 (GDN fine
+   at 2k) and with TTT layers being an ACCRETION-memory play, not a
+   backbone play, at our context length.
+
+### SEAL (2506.10943) — changes the sleep design, validates the gate
+
+1. **Raw-context consolidation barely works — restructure first.** Their
+   knowledge-incorporation numbers (Qwen2.5-7B, no-context SQuAD): base
+   32.7; finetune on the raw passage 33.5 (+0.8, negligible); finetune on
+   self-generated implications 39.7; GPT-4.1 implications 46.3; SEAL 47.0.
+   **Sleep must distill RESTRUCTURED content (implications / atomic
+   facts), not raw buffered contexts.** Task 7 gains a restructuring step:
+   generate implications from the buffered context (the backbone itself
+   can draft them), THEN distill into the substrate.
+2. **For v2 write-policy training: ReST^EM, not GRPO/PPO.** They tried
+   both; "found the training to be unstable." Rejection-sampling + SFT on
+   the self-edits that actually improved the model (binary reward) is the
+   stable recipe. Two iterations sufficed to beat GPT-4.1 as a data
+   generator.
+3. **Catastrophic forgetting is SEAL's open failure mode** (their Fig. 6:
+   sequential self-edits progressively degrade prior tasks; no defense
+   built). This is exactly the gap accretion's external gate + retention
+   suite + rollback + sparse bucket-local writes exist to close — our
+   sharpest positioning vs published work.
+4. Their ARC instantiation: RL-selected TTT configuration hit 72.5% vs 20%
+   without RL (Llama-3.2-1B) — the model can learn to CONFIGURE its own
+   adaptation. v2 material for the skill lane.
+5. Cost note: each self-edit evaluation ≈30-45s (finetune + eval inside
+   the reward loop). Their context-dependent-eval limitation (needs paired
+   QA) is already solved in our design by auto-generated retention probes.
+
+### Cross-paper convergence (all four)
+
+Every paper independently lands on a **data-dependent inner learning
+rate** (Titans θ_t/η_t/α_t heads; TTT-layers learnable η(x); ARC-TTT lr
+search per regime; SEAL self-edits choosing lr). Non-negotiable in Task 5.
+Likewise 2/4 independently need a learned-init reset and LN+residual
+inner structure. FastMemory v2 spec = Titans gates + TTT-layers inner
+structure + MAG integration, meta-trained per Task 6, consolidated per
+SEAL-restructuring, gated per our design.
