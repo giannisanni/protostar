@@ -880,3 +880,55 @@ momentum timescales — a drop-in candidate for our trainer someday.
 All 8 notebook sources now read: TTT-layers, ARC-TTT, SEAL, Engram,
 Transformer² in full; Titans core (method + experiments); Nested Learning
 core (paradigm; Hope details skimmed); SEAL blog subsumed by the paper.
+
+## Deep-read round 4 (2026-08-01): Hope/CMS equations in full (pages 13-36)
+
+User pushback was correct — "watch-list" did not justify skipping these.
+Four concrete consequences:
+
+1. **The retrofit path (§7.3) de-risks M1.** CMS blocks can be initialized
+   from a PRE-TRAINED model's MLPs; the inner learning rate controls drift
+   from them (η→0 = exactly pretrained behavior). They convert Llama3-3B/8B
+   into continual learners with only ~15B tokens of continued pretraining,
+   and it wins their class-incremental benchmarks. For us: initialize the
+   fast tier at (or near) pretrained behavior and meta-learn ONLY the gate
+   heads — stability by construction, and a fallback if from-scratch
+   meta-training (Task 6) is unstable: retrofit the existing gdn checkpoint
+   instead of retraining.
+2. **CMS's forgetting resistance is architectural redundancy across
+   frequencies**: when a fast block forgets, slower blocks still hold the
+   knowledge, and backprop-through-inits can circle it back ("a loop
+   through the time dimension"). Complementary to our external gate, and
+   an argument for 2-3 frequency tiers of fast memory rather than one.
+   Their level ablation: more levels monotonically better on ICL and
+   long-context; lowest frequency 512 > 2K > 8K (adaptivity beats
+   persistence at the margin, at compute cost).
+3. **CTNL benchmark design upgrades Task 8.** Their Continual Translation
+   of a Novel Language protocol: learn corpus A, then corpus B, then test
+   BOTH — ICL collapses in the sequential setting (catastrophic in-context
+   forgetting); Hope-3 nearly recovers per-corpus performance. Our
+   learn-and-retain benchmark gains a phase-2: after the 100M-token
+   retention run, inject a SECOND disjoint fact corpus and re-test the
+   first — measures interference, not just decay.
+4. **The sleep job's optimizer choice matters for forgetting (§4.3).**
+   Standard momentum's effective memory is ~43 gradients (<1% contribution
+   beyond); in sequential-task settings the optimizer itself drifts toward
+   the current task's gradient direction and drives forgetting — "not the
+   capacity of the model but the memory management of the optimization
+   process." Their fixes: delta-rule momentum (gradient-dependent decay),
+   DGD (Sherman-Morrison state-dependent weight decay, Eq 57), M3 (Adam +
+   Muon + two-timescale chunked momentum, Alg 1). Sleep's consolidation
+   optimizer should carry long-memory momentum; M3 is the candidate.
+
+Also captured: self-referential Titans generates its own training targets
+(v̂ = M(v)) with per-component memories for k, v, η (inner LR), α (forget
+gate) — **only W_q stays non-adaptive**, a stabilization hint for Task 6
+(adapt keys/values first, keep queries fixed). All memories are 2-layer
+MLPs with residual (M(x) = x + W1 σ(W2 x)), matching the TTT-layers
+finding. Chunk-wise dual-form training with gradients w.r.t. the previous
+chunk's last state. Hope = self-modifying Titans -> CMS chain; the
+Hope-Attention ablation (softmax attention + CMS) beats plain Transformer,
+so CMS adds value independent of self-modification.
+
+Not read: appendices (DGD derivation details, Adam-as-memory proof, M3
+scaling caveats). Core is captured; appendices on demand.
