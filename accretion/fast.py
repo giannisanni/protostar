@@ -21,10 +21,11 @@ problems; ponytail: linear first, MLP is the upgrade if this works.
 """
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class FastMemory(nn.Module):
-    def __init__(self, d, hidden=None, chunk=32, base_lr=0.5, base_decay=0.99):
+    def __init__(self, d, hidden=None, chunk=32, base_lr=0.05, base_decay=0.99):
         super().__init__()
         self.d, self.chunk = d, chunk
         self.wk = nn.Linear(d, d, bias=False)
@@ -66,7 +67,12 @@ class FastMemory(nn.Module):
         if self._state is None or self._state.shape[0] != B or \
                 self._state.device != h.device:
             self.reset(B, h.device, h.dtype)
-        k, v, q = self.wk(h), self.wv(h), self.wq(h)
+        # L2-normalize k/q (Titans, GDN): without this the delta-rule update
+        # state = a*state - eta*(err @ k^T) has no bound on ||k||, and the
+        # recurrence compounds — measured: state_absmax hit 1e15 within 5
+        # steps and the run went NaN by step 60. Normalizing is the fix all
+        # the deep-read sources use, not a workaround.
+        k, v, q = F.normalize(self.wk(h), dim=-1), self.wv(h), F.normalize(self.wq(h), dim=-1)
         eta, alpha, theta = self.gate_values(h)
         state = self._state.to(h.dtype)
         mom = self._mom.to(h.dtype)

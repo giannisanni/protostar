@@ -9,9 +9,9 @@ def test_surprise_falls_on_repetition():
     fm = FastMemory(d=64, chunk=16)
     h = torch.randn(1, 64, 64)
     _, first = fm(h)
-    for _ in range(15):
-        fm(h)
-    _, last = fm(h)
+    for _ in range(60):  # base_lr is deliberately small for stability (see
+        fm(h)           # test_state_stays_bounded_over_many_steps) so this
+    _, last = fm(h)      # needs more iterations to show the same effect
     assert last < first * 0.8, f"surprise did not fall: {first:.4f} -> {last:.4f}"
 
 
@@ -43,6 +43,24 @@ def test_snapshot_roundtrip():
     fm.reset(1)
     fm.load(snap)
     torch.testing.assert_close(fm._state, snap["state"])
+
+
+def test_state_stays_bounded_over_many_steps():
+    """Regression test for the DDP smoke-test NaN: without L2-normalized k/q,
+    the delta-rule state compounded to 1e15 within 5 steps and the training
+    run went NaN by step 60. This must stay bounded over a realistic horizon."""
+    torch.manual_seed(0)
+    fm = FastMemory(d=64, chunk=16)
+    opt = torch.optim.AdamW(fm.parameters(), lr=1e-3)
+    x = torch.randn(2, 64, 64)
+    for _ in range(80):
+        out, _ = fm(x)
+        loss = out.pow(2).mean()
+        loss.backward()
+        opt.step()
+        opt.zero_grad(set_to_none=True)
+        assert torch.isfinite(fm._state).all(), "state went non-finite"
+        assert fm._state.abs().max() < 1e4, f"state exploding: {fm._state.abs().max():.2e}"
 
 
 def test_all_projections_and_gates_receive_gradient():
