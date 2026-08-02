@@ -267,3 +267,55 @@ before the expensive layers (sleep, consolidation, benchmark) were built.
 The 350M+ scale is the honest next test of paraphrase-invariant memory —
 not another memory design at 134M. Do NOT tune v2 further; the failure is
 capacity, not hyperparameters.
+
+## VERDICT CORRECTED (2026-08-02, probe ladder): memory DOES generalize
+
+The "0% held-out -> falsified" verdict above is **WRONG** and is retracted.
+It tested exactly one probe level — the hardest — and set a threshold above
+that level's own ceiling.
+
+### The measurement that corrects it
+
+| probe level | backbone in-context (ceiling) | FROM MEMORY | retention |
+|---|---|---|---|
+| L0 identical | 100% | **58.0%** | 58% |
+| L1 light paraphrase | 100% | **50.0%** | 50% |
+| L2 moderate synonyms | 63% | **21.0%** | 33% |
+| L3 hard (inference hop) | **30%** | 0.0% | 0% |
+
+**50% recall at L1** — different sentence frame, no context, retrieved from
+the substrate alone. Paraphrase-invariant retrieval WORKS. The v1 failure
+signature (high trained-phrasing, zero everything else) does not reproduce.
+
+### What went wrong with the original test
+
+`heldout_probe()` was L3 only. L3 requires inferring "where travellers land"
+== "capital" — the unassisted backbone manages that just 30% of the time
+with the fact **in its context**. I set PASS >= 40% on a task with a 30%
+ceiling: **unpassable by construction**. The pre-registration was honest but
+the probe was not calibrated against the backbone's own competence, which is
+the calibration step that was missing.
+
+### Corrected diagnosis
+
+Not a capacity limit. Not a design failure. Memory retains ~50-58% of what
+the model can do with the text present, degrading smoothly with paraphrase
+distance and tracking the backbone's own comprehension curve. The only total
+failure is L3, where the bottleneck is the backbone's INFERENCE ability, not
+retrieval — and that genuinely is a scale question.
+
+### Methodological rule (both errors point at it)
+
+**Always calibrate a probe against the unassisted backbone before setting a
+threshold on it.** v1's error: trusting trained-phrasing recall, which
+flattered a broken system (33% meaningless). v2's error: testing only the
+hardest probe, which condemned a working one (0% misleading). The fix is the
+same in both directions — measure the ceiling first, report the full ladder,
+never a single number.
+
+### Status
+
+v2 is NOT falsified. Held-out (L1) recall 50% with the backbone at 100%
+in-context. Next: the sleep/consolidation layer becomes worth building, and
+the CORRECT pass criterion for it is retention-relative
+(memory recall / in-context ceiling), not an absolute number.
