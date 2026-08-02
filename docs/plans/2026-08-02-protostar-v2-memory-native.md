@@ -390,3 +390,54 @@ Per-cycle val drift: +0.0411, +0.0035, +0.0090; total +0.0536.
 Fresh-write recall was 66.7% / 48.3% / 69.5% here (60 facts/corpus) vs 50%
 in the probe ladder (100 facts). Fewer facts per write -> higher recall,
 consistent with slot competition being a real constraint.
+
+## LIFETIME BENCHMARK — BOTH RUNS: the gate works, and that is the problem
+
+| metric | ungated | gated |
+|---|---|---|
+| corpus A after 3 cycles | **8.3%** (kept 12.5%) | **66.7%** (kept 100%) |
+| corpus B final | 16.7% | 6.7% (rolled back) |
+| corpus C final | 68.3% | 0.0% (rolled back) |
+| corpora learned | 3, all degraded | **1** |
+| val drift | +0.0536 | +0.0475 |
+
+Gated cycle 2: kept 25.0% -> ROLLBACK. Cycle 3: kept 35.0% -> ROLLBACK.
+Both rejections happened while **dval was fine or negative** (-0.0065,
++0.0028): a val-loss-only gate approves writes that destroy 75% of prior
+knowledge. The retention suite is the only thing that sees it.
+
+### The finding
+
+**Accretion's gate is sound; accretion's substrate is not.** The gate does
+exactly its job — bit-exact rollback, triggered by evidence nothing else
+detects, general ability preserved. But it can only protect by refusing to
+learn. Ungated: catastrophic forgetting. Gated: a museum. There is currently
+no configuration that learns corpus B *and* keeps corpus A.
+
+That is a substrate problem, not a policy problem, and the design's own
+premise is the thing that broke: "sparse bucket-local writes bound
+interference by construction" is false as implemented, because the
+substrate's `wv`, `wk` and `conv` projections are DENSE paths that every
+write moves regardless of which buckets a fact occupies. Bucket sparsity is
+not isolation while a shared bottleneck exists.
+
+### Next experiment (specific, cheap, falsifiable)
+
+**Freeze the shared projections after cycle 1; let later writes touch only
+bucket embeddings.** That makes the writes actually bucket-local, which is
+what the design assumed all along.
+- Interference drops sharply -> the original claim was right in principle
+  and wrongly implemented; accretion proceeds.
+- Interference persists -> hashed-bucket memory cannot support sequential
+  writes at all, and persistence needs a different mechanism (per-corpus
+  adapters, product keys with orthogonality pressure, or LoRA-per-domain
+  from the skill lane).
+
+Cost: one more pair of runs, ~2.5h, on hardware already idle.
+
+### Secondary observations
+
+- Registry dedup fired for real: cycle 3 saw 59/60 new (one content
+  collision across independently seeded corpora).
+- Fresh-write recall is stable at 66.7 / 48.3 / 67.8% — the write path is
+  reliable and roughly deterministic. Only retention is broken.
