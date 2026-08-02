@@ -349,3 +349,44 @@ gate-off vs gate-on is what shows whether protection does anything.
 - A wiped by B -> interference is the binding problem; sparse bucket-local
   writes did not deliver the structural protection the design assumed.
 - Nothing learned in cycles 2-3 -> substrate saturation, not forgetting.
+
+## LIFETIME BENCHMARK — RUN 1 (no gate): catastrophic forgetting, measured
+
+3 disjoint corpora x 60 novel-subject facts, 12k consolidation steps each,
+probed at L1 (light paraphrase; backbone in-context ceiling 100%).
+
+| corpus | after A | after B | after C |
+|---|---|---|---|
+| **A** | 66.7% | 16.7% | **8.3%** |
+| **B** | — | 48.3% | 16.7% |
+| **C** | — | — | 68.3% |
+
+**Corpus A kept 12.5% after two later consolidations** (floor was 50%).
+Per-cycle val drift: +0.0411, +0.0035, +0.0090; total +0.0536.
+
+### Three findings
+
+1. **The design's structural-protection claim is FALSIFIED.** The accretion
+   design asserted that sparse bucket-local hash writes bound interference
+   "by construction", as the advantage over dense finetuning. Measured: ~4x
+   decay per cycle, uniform across corpora. The regularity points at shared
+   DENSE paths — the substrate's `wv`, `wk` and `conv` projections are
+   touched by every write regardless of which buckets a fact lands in. Bucket
+   sparsity is not isolation while those exist. Fixable (per-write projection
+   masking / freezing projections after cycle 1 / per-bucket value-only
+   writes), but the current design does not have the property it claimed.
+
+2. **A val-loss-only gate would have approved every one of these writes.**
+   dval stayed under +0.05 throughout while 88% of corpus A was destroyed.
+   Only the retention suite catches it. This is the strongest single
+   justification for the external gate that exists in this project.
+
+3. **SEAL's open problem reproduces independently.** Their limitation
+   (sequential edits degrade prior knowledge, no defense offered) is now
+   measured in a different system with numbers attached.
+
+### Also: recall is capacity-sensitive
+
+Fresh-write recall was 66.7% / 48.3% / 69.5% here (60 facts/corpus) vs 50%
+in the probe ladder (100 facts). Fewer facts per write -> higher recall,
+consistent with slot competition being a real constraint.
