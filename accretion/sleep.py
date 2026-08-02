@@ -55,9 +55,13 @@ def recall(model, sub, facts, probe_fn, enc, device, n_tok=6):
 
 def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
                 device, cycle, steps=20000, lr=2e-3, n_variants=7,
-                val_eps=0.05, retention_floor=0.5, gate=True, log=print):
+                val_eps=0.05, retention_floor=0.5, gate=True,
+                bucket_only=False, log=print):
     """One sleep cycle. Returns a dict of evidence; commits or rolls back.
 
+    bucket_only      optimize ONLY sparse slots, leaving shared projections
+                     frozen. Makes writes genuinely bucket-local, which is
+                     what the design assumed but did not implement.
     val_eps          max tolerated rise in held-out val loss
     retention_floor  previously-committed facts must keep this FRACTION of
                      their pre-write recall (relative, not absolute — the
@@ -78,7 +82,8 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
     # --- write: distil RESTRUCTURED variants, never the raw surface form ---
     docs = [torch.tensor([enc.encode("\n".join(restructure(f, n_variants)))], device=device)
             for f in fresh]
-    opt = torch.optim.AdamW(sub.write_params(), lr=lr)
+    params = sub.bucket_params() if bucket_only else sub.write_params()
+    opt = torch.optim.AdamW(params, lr=lr)
     sub.train()
     model.train()  # fla GDN chunk kernel needs train mode for backward
     for step in range(steps):
@@ -112,7 +117,7 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
         "retention_kept": (round(kept, 4) if kept is not None else None),
         "retention_ok": ret_ok, "retention_vacuous": kept is None,
         "new_recall": round(new_recall, 4),
-        "committed": passed, "gate_enabled": gate,
+        "committed": passed, "gate_enabled": gate, "bucket_only": bucket_only,
     }
     keptstr = f"kept {kept:.1%}" if kept is not None else "no prior knowledge to protect"
     log(f"[cycle {cycle}] new_recall={new_recall:.1%}  dval={after_val - before_val:+.4f}"

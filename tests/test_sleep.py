@@ -68,3 +68,17 @@ def test_vacuous_retention_is_flagged_not_scored():
     kept = (after / before) if before > 0 else None
     assert kept is None                       # not 1.0
     assert (kept is None or kept >= 0.5)      # gate passes, but flagged vacuous
+
+
+def test_bucket_params_excludes_shared_projections():
+    """The lifetime benchmark's diagnosis: 'bucket-local' writes were moving
+    shared dense projections on every cycle, so isolation never existed."""
+    sub = build_substrate("engram", d=64, n_layer=12)
+    bucket = {id(p) for p in sub.bucket_params()}
+    shared = [p for p in sub.write_params() if id(p) not in bucket]
+    assert bucket, "no sparse params exposed"
+    assert shared, "test is vacuous if write_params has no shared paths"
+    for name in ("wv", "wk", "conv"):
+        mod = getattr(sub, name)
+        for p in mod.parameters():
+            assert id(p) not in bucket, f"{name} leaked into bucket_params"

@@ -48,6 +48,9 @@ def main():
     ap.add_argument("--steps", type=int, default=12000)
     ap.add_argument("--lr", type=float, default=2e-3)
     ap.add_argument("--no-gate", action="store_true")
+    ap.add_argument("--freeze-after", type=int, default=0,
+                    help="after cycle N, write ONLY sparse slots "
+                         "(shared projections frozen). 0 = never")
     ap.add_argument("--out", default="/mnt/data/protostar/lifetime")
     ap.add_argument("--device", default="cuda:0")
     a = ap.parse_args()
@@ -62,7 +65,7 @@ def main():
     for p in model.parameters():
         p.requires_grad_(False)
 
-    tag = "nogate" if a.no_gate else "gate"
+    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "")
     out = Path(a.out) / tag
     out.mkdir(parents=True, exist_ok=True)
     registry = KnowledgeRegistry(out / "registry.jsonl")
@@ -83,6 +86,9 @@ def main():
     corpora = [make_facts(a.facts_per_corpus, seed=100 + i) for i in range(a.corpora)]
     names = [chr(ord("A") + i) for i in range(a.corpora)]
 
+    if a.freeze_after:
+        print(f"shared projections FROZEN after cycle {a.freeze_after} "
+              f"(writes become genuinely bucket-local)", flush=True)
     print(f"=== lifetime benchmark ({tag}) — {a.corpora} corpora x "
           f"{a.facts_per_corpus} facts, {a.steps} steps/cycle ===", flush=True)
     base_val = val_loss_fn(None)
@@ -90,9 +96,10 @@ def main():
 
     matrix = {n: {} for n in names}
     for i, (name, corpus) in enumerate(zip(names, corpora), start=1):
+        bucket_only = bool(a.freeze_after) and i > a.freeze_after
         consolidate(model, sub, corpus, registry, val_loss_fn, l1_probe, enc,
                     a.device, cycle=i, steps=a.steps, lr=a.lr,
-                    gate=not a.no_gate)
+                    gate=not a.no_gate, bucket_only=bucket_only)
         # re-probe every corpus seen so far — this is the interference test
         for j, (pname, pcorpus) in enumerate(zip(names, corpora), start=1):
             if j <= i:

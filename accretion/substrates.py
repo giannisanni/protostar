@@ -14,7 +14,18 @@ SUBSTRATES = ("engram", "ple", "pk")
 
 class _Base(nn.Module):
     def write_params(self):
-        """Params sleep/bake-off training is allowed to modify."""
+        """Everything sleep may modify: sparse slots AND shared projections."""
+        raise NotImplementedError
+
+    def bucket_params(self):
+        """ONLY the sparse, per-fact slots — no shared dense paths.
+
+        The lifetime benchmark showed ~4x decay per consolidation cycle even
+        though facts occupied different buckets. Cause: `write_params`
+        includes projections every write moves, so "bucket-local" was never
+        actually local. Optimizing only these makes the design's structural
+        isolation claim true instead of aspirational.
+        """
         raise NotImplementedError
 
     def n_slots(self):
@@ -81,6 +92,9 @@ class Engram(_Base):
         return (list(self.tables.parameters()) + list(self.wv.parameters())
                 + list(self.wk.parameters()) + list(self.conv.parameters()))
 
+    def bucket_params(self):
+        return list(self.tables.parameters())
+
     def n_slots(self):
         return self.buckets * 2 * self.heads
 
@@ -104,6 +118,9 @@ class PLE(_Base):
 
     def write_params(self):
         return [self.table.weight] + [p.weight for p in self.proj]
+
+    def bucket_params(self):
+        return [self.table.weight]
 
     def n_slots(self):
         return self.table.num_embeddings
@@ -148,6 +165,9 @@ class ProductKey(_Base):
 
     def write_params(self):
         return [self.values.weight, self.keys]
+
+    def bucket_params(self):
+        return [self.values.weight]
 
     def n_slots(self):
         return self.c * self.c
