@@ -212,3 +212,49 @@ Learning (tiering inspiration, explicitly not reproduced), Thinking
 Machines' LoRA-without-regret (de-risks the deferred LoRA extension),
 biology (sleep as distinct offline mode). SSI rumor check 2026-07-29:
 nothing technical public; direction consistent with post-scaling bets.
+
+## Design principle: the knowledge registry (added 2026-08-02)
+
+Prompted by LaurieWired's CallMeMaybe (github.com/LaurieWired/CallMeMaybe),
+a C++26 library that captures compile-time reflection metadata into a
+RUNTIME registry so a program can look itself up by name and invoke itself
+dynamically. Her framing is the transferable part, not the technique: a
+running program has no self-knowledge, which is why reverse engineering
+exists at all ("Polaroid vs two-way mirror").
+
+**The technique does NOT transfer.** CMM reflects on *type structure* —
+names, signatures, member offsets. A transformer has almost no type
+structure worth reflecting on, and Python/PyTorch already expose far more
+(`named_modules`, `named_parameters`, hooks) than CMM provides. Anyone
+proposing "runtime reflection for LLMs" as a direct port is pattern-matching
+on the phrase, not the mechanism.
+
+**The thesis DOES transfer, and we need it.** Accretion's sleep phase must
+answer "what do I already know?" before deciding what is worth writing.
+Today our only method is behavioural probing — generate text, see if the
+right token appears. That is reverse-engineering our own model, and it is
+exactly the blindness CMM complains about.
+
+**So: memory writes get a registry, from the start of Phase 2 — not bolted
+on later.** Every consolidation records:
+
+| field | why |
+|---|---|
+| content hash / fact key | dedup: has this been written before? |
+| source episode id | provenance: what caused this write |
+| timestamp + sleep cycle no. | ordering, and age-based decay policy |
+| pre/post val loss, probe results | the gate's evidence, retained |
+| substrate slots touched | rollback target; interference analysis |
+| confidence / surprise at write | prioritisation, and later pruning |
+
+This is not gold-plating — the design ALREADY requires most of it. The
+retention probe suite needs to know what was written to know what to probe;
+the rollback gate needs to know which slots to restore. Building it as an
+explicit queryable structure instead of an implicit side effect is what
+turns "the gate works" into "we can explain why the gate works", and it is
+the difference between a demo and a result someone else can check.
+
+**Concrete first use:** sleep queries the registry for near-duplicate
+content hashes before consolidating. Cheap dedup, no model inference
+needed, and it directly attacks the fact-to-fact interference that capped
+Phase 1's engram arm at 12.5%.
