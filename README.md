@@ -20,6 +20,23 @@ Plan and rationale: `docs/plans/2026-07-29-125m-prototype.md`.
 2B-token ablation arm ≈ 14h. Levers not yet pulled: torch.compile,
 activation checkpointing (would allow micro-batch 8+).
 
+## GPU selection (substrate)
+
+CUDA enumeration does NOT match nvidia-smi. Verified 2026-08-02:
+
+| CUDA id | card | PCIe (under load) | use for |
+|---|---|---|---|
+| 0 | 5060 Ti | Gen5 x8 | **single-GPU jobs — fastest** |
+| 1 | 4060 Ti | Gen4 x4 | serving / spillover |
+| 2 | 5060 Ti | Gen5 **x1** (crippled slot) | training pair only |
+
+- Single-GPU work (bake-offs, evals, inference): `CUDA_VISIBLE_DEVICES=0`.
+- DDP training: `CUDA_VISIBLE_DEVICES=1,2` keeps GPU 0 free, but note GPU 2's
+  x1 width — gradient all-reduce is the one workload that actually feels it.
+  Compute-bound single-GPU jobs do not care about link width at all.
+- Idle cards report Gen1 because PCIe downtrains at low power; **width**
+  (x8/x4/x1) is the real, non-varying number.
+
 ## pulsar-serve status
 
 The Kimi K3 IQ1_S quant was **deleted 2026-07-29** to free 529G on
