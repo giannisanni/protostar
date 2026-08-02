@@ -197,3 +197,73 @@ exist yet.
 - held-out < 10% -> joint training falsified too. Write up the negative:
   two pre-registered, mechanistically-explained failures of small-model
   memory (retrofit AND joint), which is a real contribution.
+
+## V2 VERDICT (2026-08-02): joint training also fails held-out recall
+
+### M1 (pretraining) — 2 of 3 criteria
+
+| criterion | threshold | result | |
+|---|---|---|---|
+| stability | completes, no NaN | full 2B tokens, 0 restarts | **PASS** |
+| quality tax | val <= 3.2789 | **3.3226** (+0.064 vs gdn) | FAIL |
+| memory used | mean gate > 0.05 | **0.998-1.0** | **PASS** |
+
+The hardest technical bet held: a data-dependent recurrent memory stayed
+stable across 2B tokens (after the k/q-norm fix). And the backbone did NOT
+learn to ignore memory — it drove the gate wide open. Cost: 0.064 nats.
+
+### Test 2 (the claim) — FAILED
+
+| metric | threshold | v2 | v1 (frozen) |
+|---|---|---|---|
+| **held-out phrasing recall** | **>= 40%** | **0.0%** | 0.0% |
+| trained-phrasing recall | reported only | 41.0% | 25-33% |
+| dval | <= +0.02 | +0.046 | +0.022 |
+| gate | — | 0.998 | n/a |
+
+**Held-out recall is 0.0%, identical to the frozen-backbone result.** Per
+the pre-registered decision rule (<10% -> falsified), this is STOP.
+
+### What this establishes
+
+Two independent, pre-registered configurations now fail the SAME way:
+- **v1**: sparse memory retrofitted onto a frozen backbone -> 0% held-out
+- **v2**: memory trained jointly from scratch, backbone provably using it
+  (gate ~1.0) -> 0% held-out
+
+The joint-training hypothesis — that a backbone meta-trained WITH memory
+would learn content-addressed retrieval that survives paraphrase — is
+falsified at this scale. Memory presence during pretraining was necessary
+by the literature's evidence, but it is not sufficient.
+
+### Honest diagnosis
+
+At 134M, "the capital of Zorvek is X" and "Travellers to Zorvek land first
+in X" apparently do not produce hidden states similar enough for a
+content-addressed memory to bridge. The model lacks the semantic abstraction
+that would make paraphrase-invariant retrieval possible. This is a CAPACITY
+limit, not a memory-design limit — consistent with the whole project's
+recurring theme that 134M learns surface form, not meaning.
+
+### What survives (real, reusable)
+
+- Meta-training makes a backbone markedly more receptive to external
+  memory: **41-53.5% trained-phrasing recall vs 25-33% for v1** on
+  identical facts/code. Real effect, wrong axis.
+- The stability recipe works: L2-normalized k/q + closed-form TTT-Linear
+  update + NaN guard = 2B tokens clean.
+- Gate telemetry proves usage, which is what separated "silent failure"
+  from "real failure" here.
+- Full v2 stack is built and tested (47 tests): fast memory, MAG
+  integration, meta-training, gate reporting.
+
+### Cost
+
+~6 days, ~EUR 4 of electricity, zero cloud spend. Both kill-gates fired
+before the expensive layers (sleep, consolidation, benchmark) were built.
+
+### Where this leaves the goal
+
+The 350M+ scale is the honest next test of paraphrase-invariant memory —
+not another memory design at 134M. Do NOT tune v2 further; the failure is
+capacity, not hyperparameters.
