@@ -59,3 +59,12 @@ def test_gate_arithmetic_is_relative_not_absolute():
     assert (after / before) >= floor          # 60% kept, passes a 50% floor
     before, after = 0.50, 0.20
     assert (after / before) < floor           # 40% kept, correctly fails
+
+
+def test_vacuous_retention_is_flagged_not_scored():
+    """If nothing was retained before a write, the ratio would read a vacuous
+    100% and the gate would appear to have verified something it did not."""
+    before, after = 0.0, 0.0
+    kept = (after / before) if before > 0 else None
+    assert kept is None                       # not 1.0
+    assert (kept is None or kept >= 0.5)      # gate passes, but flagged vacuous

@@ -94,10 +94,13 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
     after_val = val_loss_fn(sub)
     after_retention = recall(model, sub, prior_facts, probe_fn, enc, device) if prior_facts else 1.0
     new_recall = recall(model, sub, fresh, probe_fn, enc, device)
-    kept = (after_retention / before_retention) if before_retention > 0 else 1.0
+    # If nothing was retained beforehand there is nothing to protect, and the
+    # ratio would read a vacuous 100%. Report it as None so the evidence row
+    # cannot be mistaken for "the gate verified retention".
+    kept = (after_retention / before_retention) if before_retention > 0 else None
 
     val_ok = (after_val - before_val) <= val_eps
-    ret_ok = kept >= retention_floor
+    ret_ok = kept is None or kept >= retention_floor
     passed = (val_ok and ret_ok) or not gate
 
     evidence = {
@@ -106,13 +109,15 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
         "dval": round(after_val - before_val, 4), "val_ok": val_ok,
         "retention_before": round(before_retention, 4),
         "retention_after": round(after_retention, 4),
-        "retention_kept": round(kept, 4), "retention_ok": ret_ok,
+        "retention_kept": (round(kept, 4) if kept is not None else None),
+        "retention_ok": ret_ok, "retention_vacuous": kept is None,
         "new_recall": round(new_recall, 4),
         "committed": passed, "gate_enabled": gate,
     }
+    keptstr = f"kept {kept:.1%}" if kept is not None else "no prior knowledge to protect"
     log(f"[cycle {cycle}] new_recall={new_recall:.1%}  dval={after_val - before_val:+.4f}"
         f"  prior_retention {before_retention:.1%}->{after_retention:.1%}"
-        f" (kept {kept:.1%})  {'COMMIT' if passed else 'ROLLBACK'}")
+        f" ({keptstr})  {'COMMIT' if passed else 'ROLLBACK'}")
 
     if not passed:
         restore(sub, snap)
