@@ -144,3 +144,56 @@ Pass = held-out recall >= 40% with dval <= +0.02, retained after B.
 At 134M this learns **facts, not skills** — that ceiling is backbone size,
 not memory design. The 350M rerun is the version worth using; v2 is the
 proof the machinery works. Say so in any write-up.
+
+## PRE-REGISTERED: the v2 memory test (set 2026-08-02, BEFORE M1 finished)
+
+Registered before any v2 number exists, so the bar cannot move to fit the
+result. Same discipline as Phase 1 — which is what caught v1's fake 33%.
+
+### Test 1 — M1 gate criteria (pretraining, decides if v2 is even hostable)
+
+| check | threshold | why |
+|---|---|---|
+| stability | run completes, no NaN | the k/q-norm fix must hold over 2B tokens |
+| quality tax | val loss <= 3.2789 (gdn 3.2589 + 0.02) | memory must not cost general ability |
+| **memory USED** | **mean gate activation > 0.05** | a backbone that learned to ignore memory is a silent failure |
+
+### Test 2 — the actual claim (run immediately after M1)
+
+**Reuse `accretion/bakeoff.py` unchanged** against the v2 checkpoint. Same
+200 novel-subject facts, same SEAL restructuring, same probes. Identical
+code and data to the v1 run means the A/B is exact — only the model differs.
+
+| metric | v1 result (frozen backbone) | v2 PASS threshold |
+|---|---|---|
+| **held-out phrasing recall** | **0.0%** | **>= 40%** |
+| trained-phrasing recall | 25-33% (was fake) | reported, NOT a pass criterion |
+| dval | +0.022 | <= +0.02 |
+
+**Held-out is the only number that counts.** v1 proved trained-phrasing
+recall can read 33% while true recall is 0 — that failure mode is exactly
+what this threshold exists to catch.
+
+### Why v2 might genuinely differ
+
+v1 wrote into a substrate the backbone had never seen, addressed by lexical
+token hashes — a paraphrase hashes to a different, untrained slot, so 0%
+was structurally guaranteed. v2's memory is **content-addressed** (learned
+k/v/q projections over hidden states) and the backbone spent 2B tokens
+learning to read from it. A paraphrase yields different tokens but
+**similar hidden states** — the exact property hashing lacked.
+
+### Why it might still fail
+
+The v2 fast memory is a per-sequence matrix state, reset each forward. M1
+proves in-context use; it says nothing about carrying memory ACROSS
+contexts or consolidating it permanently. That is Phase 2/3 and does not
+exist yet.
+
+### Decision rule
+
+- held-out >= 40% -> mechanism generalizes; build sleep/consolidation (Phase 2)
+- held-out 10-40% -> partial; ONE tuning round, then decide
+- held-out < 10% -> joint training falsified too. Write up the negative:
+  two pre-registered, mechanistically-explained failures of small-model
+  memory (retrofit AND joint), which is a real contribution.
