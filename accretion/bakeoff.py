@@ -36,10 +36,28 @@ def recall_at_1(generate_fn, facts, probe=probe_prompt):
 
 
 def forward(model, sub, idx, targets=None):
-    """Backbone forward with the substrate injected between layers."""
+    """Backbone forward with the substrate injected between layers.
+
+    Mirrors Protostar.forward INCLUDING the v2 fast-memory branch. Getting
+    this wrong is not cosmetic: the first Test 2 run silently evaluated a
+    memory-native checkpoint with its memory amputated (gate read 0.000,
+    val 3.90 instead of 3.32) because this function predates v2 and only
+    walked embed -> blocks -> norm_f.
+    """
     h = model.embed(idx)
     for i, blk in enumerate(model.blocks):
         h = blk(h, model.cos, model.sin)
+        if getattr(model.cfg, "fast_memory", False) and i == model.cfg.fast_layer:
+            model.fast.reset(h.size(0), h.device, h.dtype)
+            retrieved, _ = model.fast.update(h)
+            g = torch.sigmoid(model.fast_gate(h))
+            model.last_gate = float(g.mean().detach())
+            h = h + g * model.fast_proj(retrieved)
+        if getattr(model.cfg, "engram", False) and i == model.cfg.engram_layer:
+            prev = torch.nn.functional.pad(idx[:, :-1], (1, 0))
+            mem = torch.cat([model.tables[0]((prev * 1000003 + idx) % (1 << 18)),
+                             model.tables[1]((prev * 31 + idx * 999983) % (1 << 18))], -1)
+            h = h + torch.sigmoid(model.gate(h)) * model.mem_proj(mem)
         if sub is not None:
             h = sub(h, idx, layer=i)
     h = model.norm_f(h)
