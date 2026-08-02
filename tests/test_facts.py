@@ -36,3 +36,17 @@ def test_heldout_probe_is_absent_from_training_variants():
     assert f["object"] not in hp                       # no answer leak
     assert all(hp.split(f["subject"])[0][:18] not in v  # phrasing unseen
                for v in restructure(f))
+
+
+def test_probe_ladder_covers_all_templates_and_leaks_no_answers():
+    """Every ladder level must handle every fact template, and no prompt may
+    contain the answer (that would make recall meaningless)."""
+    from accretion.facts import ROLES
+    from accretion.probe_ladder import LADDER
+    fs = make_facts(20, seed=0)
+    for level, tmpls in LADDER.items():
+        assert set(tmpls) == set(ROLES), f"{level} missing templates"
+        for f in fs:
+            prompt = tmpls[f["template"]].format(s=f["subject"])
+            assert f["object"] not in prompt, f"{level} leaks the answer"
+            assert f["subject"] in prompt, f"{level} omits the subject"
