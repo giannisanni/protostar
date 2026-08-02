@@ -319,3 +319,33 @@ v2 is NOT falsified. Held-out (L1) recall 50% with the backbone at 100%
 in-context. Next: the sleep/consolidation layer becomes worth building, and
 the CORRECT pass criterion for it is retention-relative
 (memory recall / in-context ceiling), not an absolute number.
+
+## PRE-REGISTERED: lifetime benchmark (set 2026-08-02, before running)
+
+Calibrated this time — thresholds are RELATIVE to measured behaviour, which
+is the lesson from retracting the v2 falsification.
+
+**Protocol:** 3 disjoint corpora (60 novel-subject facts each), consolidated
+sequentially. After every cycle, re-probe every corpus seen so far. Headline
+probe is **L1 light paraphrase** (in-context ceiling 100%, so a score reads
+as retrieval quality, not inference ability). Run twice: gate on, gate off.
+
+**Pass criteria:**
+
+| check | threshold | rationale |
+|---|---|---|
+| corpus A retained after 2 later cycles | **>= 50% of its post-cycle-1 recall** | relative to what was actually achieved, not an absolute |
+| new-corpus recall each cycle | **>= 30%** at L1 | v2 baseline was 50%; allow degradation as memory fills |
+| val drift over all cycles | **<= +0.05** | general ability must survive |
+| gate value | rollback rate **> 0%** in the no-gate-forgetting case | a gate that never fires is untested, not safe |
+
+**The gate-off run is mandatory.** A gate that rolls back every write shows
+zero forgetting and zero learning — flattering and useless. The comparison
+gate-off vs gate-on is what shows whether protection does anything.
+
+**Failure interpretation, fixed in advance:**
+- A retained, B/C learned -> accretion's core claim demonstrated at 134M.
+- A decays gracefully (>=50% kept) -> works, with a capacity story.
+- A wiped by B -> interference is the binding problem; sparse bucket-local
+  writes did not deliver the structural protection the design assumed.
+- Nothing learned in cycles 2-3 -> substrate saturation, not forgetting.
