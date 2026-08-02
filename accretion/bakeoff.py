@@ -129,8 +129,11 @@ def main():
     after_recall = recall_at_1(gen, facts)
     heldout = recall_at_1(gen, facts, probe=heldout_probe)
     after_val = val_loss(model, sub, val, a.device)
+    # M1 criterion 3: a model that learned to keep the gate shut is a silent
+    # failure — it trains fine and ignores memory entirely.
+    gate = f"  gate {model.last_gate:.3f}" if getattr(model.cfg, "fast_memory", False) else ""
     print(f"RESULT {a.kind:8s} slots={sub.n_slots():>9,}  "
-          f"recall {base_recall:.1%} -> {after_recall:.1%}  heldout {heldout:.1%}   "
+          f"recall {base_recall:.1%} -> {after_recall:.1%}  heldout {heldout:.1%}{gate}   "
           f"val {base_val:.4f} -> {after_val:.4f} (d{after_val - base_val:+.4f})",
           flush=True)
 
