@@ -762,3 +762,54 @@ Next experiment: sweep val_eps (0.05 / 0.10 / 0.15) and map the frontier, so
 the operating point is chosen deliberately rather than inherited from an
 arbitrary default. ~3 runs. That converts "we picked 0.05" into "here is the
 curve".
+
+## ONE-SHOT ASSOCIATIVE WRITES: right idea, wrong model
+
+Hypothesis: the retention/plasticity/drift dial is an artifact of the WRITE
+MECHANISM. Gradient descent on shared parameters (12,000 AdamW steps for 60
+facts, ~200 per fact) necessarily drags the substrate toward the fact corpus.
+An associative write is one closed-form update, changes ZERO parameters, and
+therefore has nothing to trade against general ability.
+
+Implementation: `accretion/oneshot.py` — keep the FastMemory state instead of
+resetting it per sequence, write each fact with a single forward pass.
+
+### Result: 0% recall at every scale, but NOT for the expected reason
+
+| facts written | cross-sequence recall |
+|---|---|
+| 1 | 0.0% |
+| 5 | 0.0% |
+| 20 | 0.0% |
+| 60 | 0.0% |
+| **same fact, same sequence** | **perfect** |
+
+Not capacity — one fact fails as completely as sixty. Writes were fast
+(0.8s per 60 facts, 14ms/fact vs ~25 min of gradient descent) and drift
+proves the state IS being read (+0.42, i.e. the model's behaviour changes a
+lot). It simply cannot INTERPRET a state written by a different sequence.
+
+### Cause
+
+The v2 backbone was meta-trained with `fast.reset()` on every forward — by
+construction it learned "memory holds what I just read, in this document".
+A state carried across documents is out of distribution, so retrieval reads
+as noise. The +0.42 drift is that noise being injected into general text.
+
+### What this does and does not establish
+
+- **Does:** one-shot writes avoid the dial by construction (zero parameter
+  change, 1000x faster) and the mechanism transfers information.
+- **Does NOT:** that a within-context memory can be repurposed as a
+  persistent store without retraining. It cannot.
+- **Requires:** meta-training with the state PERSISTING across sequences, so
+  the model learns to read memory written by its past self. ~17h pretrain,
+  not a config change. That is the honest next experiment for this lane.
+
+### Two bugs found on the way (both now regression-tested)
+
+1. `bakeoff.forward` ignored `persist_memory` and reset the state before
+   every probe — the SECOND bug caused by that duplicated copy of
+   `Protostar.forward`. First symptom was a suspiciously exact `drift=0.0000`.
+2. `FastMemory` silently reset when batch size changed, so a store written
+   at B=1 was wiped by evaluation at B=4. Now broadcasts instead.
