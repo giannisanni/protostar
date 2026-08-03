@@ -125,3 +125,27 @@ def test_adaptive_replay_scales_with_registry_size():
     assert frac(20, 60) == 0.25          # small pool rehearsed lightly
     for n_prior in (10, 60, 120, 600):
         assert frac(n_prior, 60) <= 0.5, "new corpus must always get >= half"
+
+
+def test_oneshot_write_changes_no_parameters():
+    """The whole point of one-shot writes: the DIAL problem comes from gradient
+    descent moving shared parameters. An associative write moves only the
+    matrix state, so there is nothing to trade against general ability."""
+    import torch
+
+    from model import Config, Protostar
+    torch.manual_seed(0)
+    m = Protostar(Config(d=64, n_layer=6, n_head=4, n_kv_head=2, seq_len=64,
+                         vocab=512, fast_hidden=128, fast_chunk=16,
+                         fast_layer=3, fast_memory=True)).eval()
+    before = {n: p.detach().clone() for n, p in m.named_parameters()}
+    m.persist_memory = True
+    with torch.no_grad():
+        m(torch.randint(0, 512, (1, 48)))          # the "write"
+        state_after = m.fast.snapshot()["state"].clone()
+        m(torch.randint(0, 512, (1, 48)))          # another write
+    for n, p in m.named_parameters():
+        torch.testing.assert_close(p, before[n], atol=0, rtol=0,
+                                   msg=f"parameter {n} moved during a one-shot write")
+    assert not torch.allclose(state_after, m.fast.snapshot()["state"]), \
+        "state must accumulate across writes when persist_memory is set"
