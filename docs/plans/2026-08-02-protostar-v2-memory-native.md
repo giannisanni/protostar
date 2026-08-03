@@ -712,3 +712,53 @@ The designed system is validated for homogeneous facts and partially for
 varied. Both failures are specific, understood, and cheap to fix — but they
 are real, and the varied case is the one that matters for a model that
 learns from ordinary heterogeneous experience.
+
+## BOTH FIXES SHIPPED — and they revealed a frontier, not a solution
+
+Fixes: (1) adaptive replay `n_prior/(n_prior+n_new)` capped at 0.5;
+(2) gate measures drift from the ORIGINAL baseline, not the previous cycle.
+Both have regression tests built from the measured failure numbers.
+
+### Each fix did its job
+
+- **Plasticity fix worked:** varied cycle-2 new-corpus recall **18.3% -> 28.3%**.
+  Adaptive rehearsal stops new material being crowded out.
+- **Gate fix worked:** cycle 2 correctly ROLLED BACK on cumulative drift
+  (+0.0661 > +0.05) — the exact class of write the old per-cycle check
+  waved through.
+
+### Together they produce a museum
+
+| corpus | after A | after B | after C |
+|---|---|---|---|
+| A | 33.3% | 33.3% | **33.3%** (kept 100%) |
+| B | — | 0.0% | 0.0% (rolled back) |
+| C | — | — | 0.0% (rolled back) |
+
+### The real finding: this is a TRADEOFF FRONTIER
+
+| configuration | total facts (of 180) | final drift |
+|---|---|---|
+| replay, no gate | **~42** | +0.104 |
+| gate + flat replay 30% | ~35 | +0.093 |
+| gate + adaptive replay | ~20 | **+0.016** |
+
+Every configuration sits on one curve: **stricter drift protection buys less
+knowledge.** The `+0.05` epsilon — which I picked arbitrarily — is now the
+binding constraint on the entire system, not any property of the memory.
+
+There is also a mechanism worth naming: replaying at 50% means half of every
+batch is content the substrate ALREADY learned. Those gradients add no
+knowledge; they only push the substrate further toward the fact corpus and
+away from general text. So retention, plasticity, and general-ability
+preservation form a three-way tension — the substrate can hold any two.
+
+### Open question, and it is a judgment call not a measurement
+
+**How much general ability is a fact worth?** +0.10 nats bought 42 facts;
++0.016 bought 20. Neither is objectively correct.
+
+Next experiment: sweep val_eps (0.05 / 0.10 / 0.15) and map the frontier, so
+the operating point is chosen deliberately rather than inherited from an
+arbitrary default. ~3 runs. That converts "we picked 0.05" into "here is the
+curve".
