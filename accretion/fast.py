@@ -64,9 +64,17 @@ class FastMemory(nn.Module):
         from the outer loss.
         """
         B, T, d = h.shape
-        if self._state is None or self._state.shape[0] != B or \
-                self._state.device != h.device:
+        if self._state is None or self._state.device != h.device:
             self.reset(B, h.device, h.dtype)
+        elif self._state.shape[0] != B:
+            # batch changed. A persistent store written at B=1 must not be
+            # silently wiped when evaluated at B=4 — broadcast the single
+            # state instead. Only a genuine multi-state batch resets.
+            if self._state.shape[0] == 1:
+                self._state = self._state.expand(B, -1, -1).clone()
+                self._mom = self._mom.expand(B, -1, -1).clone()
+            else:
+                self.reset(B, h.device, h.dtype)
         # L2-normalize k/q (Titans, GDN): without this the delta-rule update
         # state = a*state - eta*(err @ k^T) has no bound on ||k||, and the
         # recurrence compounds — measured: state_absmax hit 1e15 within 5

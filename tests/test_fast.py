@@ -76,3 +76,16 @@ def test_all_projections_and_gates_receive_gradient():
         assert g is not None and g.abs().sum() > 0, f"{name} got no gradient"
     assert fm.gates.weight.grad is not None and fm.gates.weight.grad.abs().sum() > 0
     assert fm.m0.grad is not None, "meta-learned init got no gradient"
+
+
+def test_state_broadcasts_across_batch_instead_of_resetting():
+    """A persistent store written at batch 1 must survive evaluation at batch 4.
+    Silently resetting on a batch-size change made one-shot writes read as 0%
+    recall and 0.0000 drift — the memory was being wiped before every probe."""
+    torch.manual_seed(0)
+    fm = FastMemory(d=64, chunk=16)
+    fm(torch.randn(1, 32, 64))                      # write at B=1
+    written = fm.snapshot()["state"].clone()
+    fm(torch.randn(4, 32, 64))                      # evaluate at B=4
+    assert not torch.allclose(fm.snapshot()["state"][0], torch.zeros_like(written[0])), \
+        "state was wiped by the batch-size change"

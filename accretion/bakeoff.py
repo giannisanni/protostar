@@ -48,7 +48,11 @@ def forward(model, sub, idx, targets=None):
     for i, blk in enumerate(model.blocks):
         h = blk(h, model.cos, model.sin)
         if getattr(model.cfg, "fast_memory", False) and i == model.cfg.fast_layer:
-            model.fast.reset(h.size(0), h.device, h.dtype)
+            # respect persist_memory — a stateful caller (oneshot writes) needs
+            # the state to survive. Second bug caused by this duplicated copy
+            # of Protostar.forward; the regression test compares them.
+            if not getattr(model, "persist_memory", False):
+                model.fast.reset(h.size(0), h.device, h.dtype)
             retrieved, _ = model.fast.update(h)
             g = torch.sigmoid(model.fast_gate(h))
             model.last_gate = float(g.mean().detach())
