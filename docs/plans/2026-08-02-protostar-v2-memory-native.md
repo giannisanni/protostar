@@ -560,3 +560,72 @@ varied + frozen projections — the missing 2x2 cell. High retention confirms
 projections as THE interference channel (fixable). Low retention means
 neither sparsity nor freezing rescues hash-table memory, and the substrate
 must be replaced (product-key with learned keys) rather than repaired.
+
+## REPLAY: the accretion claim demonstrated at 134M
+
+30% of each consolidation batch drawn from previously committed facts,
+sourced from the knowledge registry. Everything else identical.
+
+### Homogeneous corpora
+
+| corpus | after A | after B | after C |
+|---|---|---|---|
+| A | 75.0% | 71.7% | **58.3%** |
+| B | — | 48.3% | 41.7% |
+| C | — | — | 71.7% |
+
+**Corpus A kept 77.8%** (vs 12.5% without replay). Floor was 50%: PASS.
+
+### Varied corpora (0.5% bigram overlap — the hard case)
+
+| corpus | after A | after B | after C |
+|---|---|---|---|
+| A | 28.3% | 36.7% | **21.7%** |
+| B | — | 13.3% | 21.7% |
+| C | — | — | 26.7% |
+
+**Corpus A kept 76.5%** (vs **0.0%** without replay). PASS.
+
+### Total knowledge retained — the metric that matters
+
+| condition | A | B | C | facts of 180 |
+|---|---|---|---|---|
+| varied, learnable | 0.0% | 3.3% | 8.3% | ~7 |
+| varied, frozen | 0.0% | 0.0% | 8.3% | ~5 |
+| **varied, replay** | 21.7% | 21.7% | 26.7% | **~42** |
+| homogeneous, learnable | 8.3% | 16.7% | 68.3% | ~56 |
+| **homogeneous, replay** | 58.3% | 41.7% | 71.7% | **~103** |
+
+6-8x more retained knowledge in the varied case, ~2x in the homogeneous
+case. **All three corpora land at comparable recall** rather than the newest
+dominating — the signature of genuinely holding multiple corpora instead of
+serially overwriting them.
+
+### Why replay worked where sparsity and freezing did not
+
+The bottleneck is shared PROJECTION CAPACITY, not slot collision (proven by
+the varied runs: 1.3% bucket overlap still gave total forgetting). Freezing
+tried to protect old paths by forbidding change — that also forbade new
+learning, and failed anyway by cycle 3. Replay instead keeps old facts in
+the gradient signal, so the shared projections are optimised to serve old
+AND new content simultaneously. It is the difference between hoping a shared
+resource is undisturbed and requiring it to keep working.
+
+### Cost, honestly
+
+- Varied: new-corpus recall 13.3-26.7% vs 21.7-38.3% without replay. Real
+  plasticity cost — 30% of budget spent on rehearsal.
+- Homogeneous: essentially free (B got 48.3% either way) because rehearsed
+  facts share scaffolding with new ones.
+- Val drift is HIGHER with replay (+0.1026 varied): the substrate is under
+  continuous pressure. **The gate becomes more important, not less** —
+  general ability is now the thing at risk, not old facts.
+- Absolute recall stays modest (~22% varied, ~58% homogeneous). This is
+  "much better than collapse", not "solved".
+
+### Status
+
+Accretion's core claim — learn corpus after corpus, keep them all — is
+DEMONSTRATED at 134M, in both fact regimes, with a pre-registered threshold
+set before the runs. The full stack that produced it (restructuring, gate,
+rollback, registry, replay, retention benchmark) is built and tested.
