@@ -654,3 +654,61 @@ the first configuration that learns multiple corpora AND retains protection.
 - Gate passes but val drift exceeds +0.05 -> replay and the val check are in
   tension; the gate would need a replay-aware epsilon.
 - Everything passes -> the designed system works end to end.
+
+## GATE + REPLAY (the designed system): works homogeneous, two flaws exposed varied
+
+| | homogeneous | varied |
+|---|---|---|
+| cycles committed | **3 of 3** | **3 of 3** |
+| corpus A kept | **82.5%** | **110.5%** |
+| total facts retained | ~100 / 180 | **~35 / 180** |
+| val drift (cumulative) | +0.0433 | **+0.0932** |
+
+Pre-registered: homogeneous 3 pass + 1 wash. Varied 2 pass, **2 FAIL**.
+
+Retention matrices:
+
+```
+homogeneous          varied
+  A  66.7 63.3 55.0    A  31.7 43.3 35.0
+  B    -  48.3 41.7    B    -  18.3 11.7
+  C    -    -  70.0    C    -    -  11.7
+```
+
+**Confirmed:** the gate stops rejecting once replay holds retention. Every
+previous gated run committed 1 of 3 corpora; this commits 3 of 3, and in the
+homogeneous case retains the same knowledge as running unprotected — the
+gate costs nothing while staying active. Cycle 3 dval was NEGATIVE (-0.0024):
+general ability improved while consolidating a third corpus.
+
+### FLAW 1: plasticity collapse under a fixed replay rate
+
+Varied new-corpus recall fell **31.7% -> 18.3% -> 11.7%** across cycles. By
+cycle 3 the replay pool is 120 prior facts against 60 new ones at a fixed
+30% rate, and the new corpus barely registers. Total retained knowledge
+(~35 facts) is LOWER than the same config ungated (~42). Old knowledge is
+preserved beautifully; new knowledge is being crowded out. The museum
+failure returning by a slower route.
+
+Fix: replay rate should scale with registry size / recency, not sit fixed.
+
+### FLAW 2: the gate checks per-cycle drift, not cumulative (design bug)
+
+Varied per-cycle dval: +0.0256, +0.0301, +0.0376 — every one under the
++0.05 threshold, all three COMMITTED. Cumulative drift: **+0.0932**, nearly
+2x the limit. **The gate approved a sequence of writes that collectively did
+exactly what it exists to prevent.**
+
+This is the same class of error as the probe-calibration mistakes: measuring
+one step when the claim is about many. Found only because the benchmark
+happened to report cumulative drift separately from the gate's own check.
+
+Fix: gate against the ORIGINAL pre-accretion baseline, not the previous
+cycle's value. One-line change; the benchmark already computes it.
+
+### Status
+
+The designed system is validated for homogeneous facts and partially for
+varied. Both failures are specific, understood, and cheap to fix — but they
+are real, and the varied case is the one that matters for a model that
+learns from ordinary heterogeneous experience.
