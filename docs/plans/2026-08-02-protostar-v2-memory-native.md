@@ -508,3 +508,55 @@ short lexical n-grams.
   structural rather than hoped for.
 - The gate, registry, rollback and benchmark all work and are substrate
   agnostic — they transfer to whatever replaces the hash tables.
+
+## VARIED-DOMAIN RUNS: the collision hypothesis is REFUTED
+
+Built heterogeneous corpora (`accretion/varied.py`): 3 disjoint domains with
+distinct relations, vocabulary, sentence shapes and restructuring styles.
+Verified before spending compute:
+
+```
+identical bigrams A n B : 0.5%  [homogeneous baseline: 68.4%]
+shared buckets   A n B : 1.3%  [homogeneous baseline: 56.0%]
+```
+
+### Result: near-disjoint buckets made forgetting WORSE, not better
+
+| condition | bucket overlap | corpus A kept | notes |
+|---|---|---|---|
+| homogeneous, learnable | 56% | 25.0% | |
+| homogeneous, frozen | 56% | 36.6% | |
+| **varied, learnable** | **1.3%** | **0.0%** | total wipe; val drift +0.10 |
+| varied, gated | 1.3% | 100% (A only) | B and C both rolled back, 0% |
+
+**Bucket collision was never the mechanism.** If it were, cutting overlap
+from 56% to 1.3% would have reduced interference; it eliminated retention
+entirely. The earlier collision analysis found a real correlation and I
+over-read it as causal — recorded as an error.
+
+### Revised mechanism
+
+Shared templates were accidentally PROTECTING corpus A: every later corpus
+re-reinforced the same scaffolding patterns A's probe depended on. Remove the
+shared structure and nothing holds A up. That reframes the homogeneous
+numbers — some of that 66.7% "recall" was template memorisation, which is
+also why varied-domain fresh recall is much lower (23-27% vs 67-73%) against
+a similar chance floor (12.5% vs 10%).
+
+Prime suspect is now the **shared dense projections** (`wv`, `wk`, `conv`),
+which every write retunes regardless of which buckets it touches.
+
+### Secondary signal
+
+Varied + learnable also showed progressive destabilisation, not just
+forgetting: fresh-write recall 26.7% -> 21.7% -> 8.3% and val drift +0.1043
+(2x the homogeneous case). Caveat: fresh recall varies by domain (the gated
+run got 23.3% then 38.3%), so part of that decline may be domain difficulty
+rather than degradation. Do not over-read the trend from one run.
+
+### Decisive experiment queued
+
+varied + frozen projections — the missing 2x2 cell. High retention confirms
+projections as THE interference channel (fixable). Low retention means
+neither sparsity nor freezing rescues hash-table memory, and the substrate
+must be replaced (product-key with learned keys) rather than repaired.
