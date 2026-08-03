@@ -441,3 +441,70 @@ Cost: one more pair of runs, ~2.5h, on hardware already idle.
   collision across independently seeded corpora).
 - Fresh-write recall is stable at 66.7 / 48.3 / 67.8% — the write path is
   reliable and roughly deterministic. Only retention is broken.
+
+## FROZEN-PROJECTION RUNS + COLLISION ANALYSIS: root cause found
+
+### Results (60 facts/corpus, 12k steps, L1 probe)
+
+| | unfrozen | **frozen** |
+|---|---|---|
+| corpus A after cycle 2 | 16.7% (kept 25.0%) | **25.0% (kept 36.6%)** |
+| corpus A after cycle 3 | 8.3% (kept 12.5%) | **11.7% (kept 17.1%)** |
+| corpus B fresh recall | 48.3% | **51.7%** |
+| gated: corpora learned | 1 | 1 (cycles 2,3 rolled back) |
+
+Freezing shared projections helped (~+8pts retention) and cost nothing in
+plasticity — new-write recall went UP, killing the counter-hypothesis that a
+frozen readout blocks learning. But 17% retention is nowhere near the 50%
+floor. So shared projections were a contributing channel, not the main one.
+
+### Root cause: the keys are literally the same text
+
+Bucket analysis (`accretion/collide.py`, pure arithmetic, no GPU):
+
+```
+corpus A: 7,798 distinct buckets (1.49% of a 524,288-slot table)
+A n B      : 4,370 shared = 56.0% of A
+A n (B u C): 5,316 shared = 68.2% of A
+```
+
+And the overlap is **not hash collision** — it is identical n-grams:
+
+```
+corpus A distinct token-bigrams: 630
+IDENTICAL bigrams in both A and B: 431 = 68.4% of A
+  ' was' -> ' founded'    ' remember' -> ' that'    ' is' -> ' Cav'
+```
+
+Every corpus uses the same 4 relation templates and the same 7 restructuring
+variants, so the scaffolding bigrams are byte-identical across corpora. The
+fact-specific signal ("Zorvek" -> "Tarnwick") lives in a minority of keys,
+while the high-traffic template keys — which appear in EVERY fact — get
+rewritten to point at the newest corpus's answers.
+
+**More buckets would change nothing.** The keys are not colliding; they are
+the same.
+
+### What this means
+
+Lexical n-gram addressing cannot support sequential fact learning when the
+facts share phrasing — and facts in any real domain DO share phrasing. This
+is the same limitation flagged in deep-read round 2 ("Engram cannot retrieve
+on a paraphrase"), now shown to have a second, worse consequence:
+**shared surface form makes writes collide even when the content is disjoint.**
+
+The retention/plasticity tradeoff observed in every run is therefore not a
+gate-tuning problem or a capacity problem. It is inherent to keying memory on
+short lexical n-grams.
+
+### Implications for the design
+
+- Engram-style hash memory: **suitable for a single consolidation, not for a
+  sequence of them.** Fine as a static knowledge store baked in at
+  pretraining (DeepSeek's actual use), unsuitable as accretion's lifetime tier.
+- The fix must make keys **content-specific rather than surface-specific**:
+  product-key memory with learned keys (now testable — its init bug is
+  fixed), or per-domain adapters from the skill lane, where isolation is
+  structural rather than hoped for.
+- The gate, registry, rollback and benchmark all work and are substrate
+  agnostic — they transfer to whatever replaces the hash tables.
