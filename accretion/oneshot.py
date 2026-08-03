@@ -133,9 +133,11 @@ def main():
                 matrix[pname][f"after_{name}"] = round(
                     probe(model, pcorpus, probe_fn, enc, a.device), 4)
         drift = val_loss(model, val, a.device) - base_val
+        so_far = "  ".join(f"{k}={matrix[k][f'after_{name}']:.0%}"
+                           for k in names[:i])
         print(f"[wrote {name}] {len(corpus)} facts in {dt:.1f}s "
-              f"({dt/len(corpus)*1000:.0f}ms/fact)  drift={drift:+.4f}  "
-              f"recall={ {k: f'{v:.0%}' for k, v in matrix.items() if v} }", flush=True)
+              f"({dt/len(corpus)*1000:.0f}ms/fact)  drift={drift:+.4f}  {so_far}",
+              flush=True)
 
     print("\n=== RETENTION MATRIX ===", flush=True)
     print("corpus  " + "  ".join(f"after_{n}" for n in names), flush=True)
