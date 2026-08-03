@@ -22,7 +22,14 @@ activation checkpointing (would allow micro-batch 8+).
 
 ## GPU selection (substrate)
 
-CUDA enumeration does NOT match nvidia-smi. Verified 2026-08-02:
+**ALWAYS set `CUDA_DEVICE_ORDER=PCI_BUS_ID`.** PyTorch defaults to
+`FASTEST_FIRST`, so bare `CUDA_VISIBLE_DEVICES=0` picks whichever card CUDA
+thinks is fastest — measured on substrate, that is the 4060 Ti, NOT
+nvidia-smi's index 0. This caused a bake-off to run on the slow card and an
+OOM against a GPU nvidia-smi showed as empty. With PCI_BUS_ID set, CUDA
+indices match nvidia-smi exactly.
+
+CUDA enumeration (with PCI_BUS_ID set) matches nvidia-smi. Verified 2026-08-02:
 
 | CUDA id | card | PCIe (under load) | use for |
 |---|---|---|---|

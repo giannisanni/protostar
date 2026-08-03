@@ -25,10 +25,12 @@ import torch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from accretion.bakeoff import forward  # noqa: E402
-from accretion.facts import make_facts  # noqa: E402
+from accretion.facts import make_facts, restructure  # noqa: E402
 from accretion.probe_ladder import LADDER  # noqa: E402
 from accretion.registry import KnowledgeRegistry  # noqa: E402
 from accretion.sleep import consolidate, recall  # noqa: E402
+from accretion.varied import (make_varied_facts, varied_probe,  # noqa: E402
+                              varied_restructure)
 from accretion.substrates import build_substrate  # noqa: E402
 from data.loader import Shards  # noqa: E402
 from model import Config, Protostar  # noqa: E402
@@ -48,6 +50,9 @@ def main():
     ap.add_argument("--steps", type=int, default=12000)
     ap.add_argument("--lr", type=float, default=2e-3)
     ap.add_argument("--no-gate", action="store_true")
+    ap.add_argument("--varied", action="store_true",
+                    help="heterogeneous domains per corpus: disjoint relations, "
+                         "vocabulary and phrasing (0.5%% bigram overlap vs 68%%)")
     ap.add_argument("--freeze-after", type=int, default=0,
                     help="after cycle N, write ONLY sparse slots "
                          "(shared projections frozen). 0 = never")
@@ -65,7 +70,7 @@ def main():
     for p in model.parameters():
         p.requires_grad_(False)
 
-    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "")
+    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "")
     out = Path(a.out) / tag
     out.mkdir(parents=True, exist_ok=True)
     registry = KnowledgeRegistry(out / "registry.jsonl")
@@ -83,7 +88,13 @@ def main():
         return tot / n
 
     # disjoint corpora: distinct seeds => distinct novel subjects
-    corpora = [make_facts(a.facts_per_corpus, seed=100 + i) for i in range(a.corpora)]
+    if a.varied:
+        corpora = [make_varied_facts(a.facts_per_corpus, domain=i, seed=100)
+                   for i in range(a.corpora)]
+        probe_fn, restr_fn = varied_probe, varied_restructure
+    else:
+        corpora = [make_facts(a.facts_per_corpus, seed=100 + i) for i in range(a.corpora)]
+        probe_fn, restr_fn = l1_probe, restructure
     names = [chr(ord("A") + i) for i in range(a.corpora)]
 
     if a.freeze_after:
@@ -97,14 +108,15 @@ def main():
     matrix = {n: {} for n in names}
     for i, (name, corpus) in enumerate(zip(names, corpora), start=1):
         bucket_only = bool(a.freeze_after) and i > a.freeze_after
-        consolidate(model, sub, corpus, registry, val_loss_fn, l1_probe, enc,
+        consolidate(model, sub, corpus, registry, val_loss_fn, probe_fn, enc,
                     a.device, cycle=i, steps=a.steps, lr=a.lr,
-                    gate=not a.no_gate, bucket_only=bucket_only)
+                    gate=not a.no_gate, bucket_only=bucket_only,
+                    restructure_fn=restr_fn)
         # re-probe every corpus seen so far — this is the interference test
         for j, (pname, pcorpus) in enumerate(zip(names, corpora), start=1):
             if j <= i:
                 matrix[pname][f"after_{name}"] = round(
-                    recall(model, sub, pcorpus, l1_probe, enc, a.device), 4)
+                    recall(model, sub, pcorpus, probe_fn, enc, a.device), 4)
         print(f"  retention matrix so far: "
               f"{json.dumps({k: v for k, v in matrix.items() if v})}", flush=True)
 

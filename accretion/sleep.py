@@ -56,7 +56,7 @@ def recall(model, sub, facts, probe_fn, enc, device, n_tok=6):
 def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
                 device, cycle, steps=20000, lr=2e-3, n_variants=7,
                 val_eps=0.05, retention_floor=0.5, gate=True,
-                bucket_only=False, log=print):
+                bucket_only=False, restructure_fn=restructure, log=print):
     """One sleep cycle. Returns a dict of evidence; commits or rolls back.
 
     bucket_only      optimize ONLY sparse slots, leaving shared projections
@@ -80,7 +80,7 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
     snap = snapshot(sub)
 
     # --- write: distil RESTRUCTURED variants, never the raw surface form ---
-    docs = [torch.tensor([enc.encode("\n".join(restructure(f, n_variants)))], device=device)
+    docs = [torch.tensor([enc.encode("\n".join(restructure_fn(f, n_variants)))], device=device)
             for f in fresh]
     params = sub.bucket_params() if bucket_only else sub.write_params()
     opt = torch.optim.AdamW(params, lr=lr)

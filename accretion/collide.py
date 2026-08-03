@@ -90,3 +90,45 @@ def why_shared():
 
 if __name__ == "__main__":
     why_shared()
+
+
+def varied_overlap():
+    """Did heterogeneous domains actually reduce shared surface form?
+
+    Run BEFORE the expensive benchmark: if overlap is still high, the
+    manipulation failed and the benchmark would test nothing.
+    """
+    import tiktoken
+
+    from accretion.varied import make_varied_facts, varied_restructure
+    enc = tiktoken.get_encoding("gpt2")
+
+    def bigrams(corpus):
+        out = set()
+        for f in corpus:
+            ids = enc.encode("\n".join(varied_restructure(f)))
+            out.update(zip([0] + ids[:-1], ids))
+        return out
+
+    def buckets(corpus):
+        s = set()
+        for f in corpus:
+            ids = enc.encode("\n".join(varied_restructure(f)))
+            p1, p2 = [0] + ids[:-1], [0, 0] + ids[:-2]
+            for h in range(HEADS):
+                a, b, c = P[h % len(P)], P[(h + 3) % len(P)], P[(h + 5) % len(P)]
+                for i in range(len(ids)):
+                    s.add(("2g", h, (p1[i] * a + ids[i] * b) % BUCKETS))
+                    s.add(("3g", h, (p2[i] * a + p1[i] * b + ids[i] * c) % BUCKETS))
+        return s
+
+    corpora = [make_varied_facts(60, domain=i, seed=100) for i in range(3)]
+    ba, bb, bc = (bigrams(c) for c in corpora)
+    ka, kb, kc = (buckets(c) for c in corpora)
+    print("=== VARIED corpora (heterogeneous domains) ===")
+    print(f"identical bigrams A n B : {len(ba & bb):,} = {len(ba & bb)/len(ba):.1%} of A"
+          f"   [homogeneous baseline: 68.4%]")
+    print(f"shared buckets   A n B : {len(ka & kb):,} = {len(ka & kb)/len(ka):.1%} of A"
+          f"   [homogeneous baseline: 56.0%]")
+    print(f"shared buckets A n (BuC): {len(ka & (kb | kc)):,} = "
+          f"{len(ka & (kb | kc))/len(ka):.1%} of A   [baseline: 68.2%]")

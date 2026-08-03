@@ -50,3 +50,25 @@ def test_probe_ladder_covers_all_templates_and_leaks_no_answers():
             prompt = tmpls[f["template"]].format(s=f["subject"])
             assert f["object"] not in prompt, f"{level} leaks the answer"
             assert f["subject"] in prompt, f"{level} omits the subject"
+
+
+def test_varied_domains_share_no_vocabulary():
+    """The whole point: corpora must not share scaffolding by construction."""
+    from accretion.varied import DOMAINS
+    for i, a in enumerate(DOMAINS):
+        for j, b in enumerate(DOMAINS):
+            if i >= j:
+                continue
+            assert not (set(a["syl"]) & set(b["syl"])), f"{i}/{j} share syllables"
+            assert not (set(a["objects"]) & set(b["objects"])), f"{i}/{j} share objects"
+            assert not (set(a["relations"]) & set(b["relations"])), f"{i}/{j} share relations"
+            assert not (set(a["variants"]) & set(b["variants"])), f"{i}/{j} share variants"
+
+
+def test_varied_probe_omits_answer_and_names_subject():
+    from accretion.varied import make_varied_facts, varied_probe, varied_restructure
+    for dom in range(3):
+        for f in make_varied_facts(10, domain=dom, seed=0):
+            p = varied_probe(f)
+            assert f["subject"] in p and f["object"] not in p
+            assert all(f["object"] in v for v in varied_restructure(f))
