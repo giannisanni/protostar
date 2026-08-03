@@ -629,3 +629,28 @@ Accretion's core claim — learn corpus after corpus, keep them all — is
 DEMONSTRATED at 134M, in both fact regimes, with a pre-registered threshold
 set before the runs. The full stack that produced it (restructuring, gate,
 rollback, registry, replay, retention benchmark) is built and tested.
+
+## PRE-REGISTERED: gate + replay (the actual designed system, 2026-08-03)
+
+Both replay runs so far were --no-gate. This is the first run of the system
+as designed: rehearsal keeps old facts alive, AND the gate rejects any write
+that damages them anyway.
+
+**Prediction (stated before running):** with replay holding retention at
+~77%, cycles 2 and 3 should now PASS the gate (kept >= 50%) rather than
+rolling back as they did in every previous gated run. That would make this
+the first configuration that learns multiple corpora AND retains protection.
+
+| check | threshold | why |
+|---|---|---|
+| corpora committed | **>= 2 of 3** | previous gated runs committed only 1 |
+| corpus A kept | >= 50% | same floor as all prior runs |
+| total facts retained | > replay-no-gate (~103 homog / ~42 varied) | protection must not cost knowledge |
+| val drift | <= +0.05 | the gate's own job — replay pushed this to +0.10 ungated |
+
+**Failure modes, interpreted in advance:**
+- Gate still rejects everything -> replay's retention gain is real but the
+  50% floor is mis-calibrated for a system under continuous replay pressure.
+- Gate passes but val drift exceeds +0.05 -> replay and the val check are in
+  tension; the gate would need a replay-aware epsilon.
+- Everything passes -> the designed system works end to end.
