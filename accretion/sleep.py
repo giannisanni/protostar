@@ -56,9 +56,16 @@ def recall(model, sub, facts, probe_fn, enc, device, n_tok=6):
 def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
                 device, cycle, steps=20000, lr=2e-3, n_variants=7,
                 val_eps=0.05, retention_floor=0.5, gate=True,
-                bucket_only=False, restructure_fn=restructure, log=print):
+                bucket_only=False, restructure_fn=restructure,
+                replay_frac=0.0, log=print):
     """One sleep cycle. Returns a dict of evidence; commits or rolls back.
 
+    replay_frac      fraction of each training batch drawn from PREVIOUSLY
+                     committed facts. The standard continual-learning answer
+                     to a shared-capacity bottleneck: keep old retrieval paths
+                     alive in the gradient signal instead of hoping they
+                     survive untouched. Costs nothing to source — the registry
+                     already stores every committed fact.
     bucket_only      optimize ONLY sparse slots, leaving shared projections
                      frozen. Makes writes genuinely bucket-local, which is
                      what the design assumed but did not implement.
@@ -82,12 +89,24 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
     # --- write: distil RESTRUCTURED variants, never the raw surface form ---
     docs = [torch.tensor([enc.encode("\n".join(restructure_fn(f, n_variants)))], device=device)
             for f in fresh]
+    replay_docs = []
+    if replay_frac > 0 and prior_facts:
+        replay_docs = [torch.tensor(
+            [enc.encode("\n".join(restructure_fn(f, n_variants)))], device=device)
+            for f in prior_facts]
+        log(f"[cycle {cycle}] replay: {len(replay_docs)} prior facts, "
+            f"{replay_frac:.0%} of each batch")
     params = sub.bucket_params() if bucket_only else sub.write_params()
     opt = torch.optim.AdamW(params, lr=lr)
     sub.train()
     model.train()  # fla GDN chunk kernel needs train mode for backward
+    import random as _random
+    rng = _random.Random(cycle)
     for step in range(steps):
-        doc = docs[step % len(docs)]
+        if replay_docs and rng.random() < replay_frac:
+            doc = replay_docs[rng.randrange(len(replay_docs))]
+        else:
+            doc = docs[step % len(docs)]
         _, loss = forward(model, sub, doc[:, :-1], doc[:, 1:])
         loss.backward()
         opt.step()
@@ -118,6 +137,7 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
         "retention_ok": ret_ok, "retention_vacuous": kept is None,
         "new_recall": round(new_recall, 4),
         "committed": passed, "gate_enabled": gate, "bucket_only": bucket_only,
+        "replay_frac": replay_frac,
     }
     keptstr = f"kept {kept:.1%}" if kept is not None else "no prior knowledge to protect"
     log(f"[cycle {cycle}] new_recall={new_recall:.1%}  dval={after_val - before_val:+.4f}"

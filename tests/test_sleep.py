@@ -82,3 +82,13 @@ def test_bucket_params_excludes_shared_projections():
         mod = getattr(sub, name)
         for p in mod.parameters():
             assert id(p) not in bucket, f"{name} leaked into bucket_params"
+
+
+def test_replay_draws_from_prior_facts_at_the_right_rate():
+    """Replay must sample committed facts at ~replay_frac, else it either does
+    nothing or drowns out the new corpus."""
+    import random
+    rng = random.Random(0)
+    frac, n = 0.3, 20000
+    hits = sum(rng.random() < frac for _ in range(n))
+    assert abs(hits / n - frac) < 0.02

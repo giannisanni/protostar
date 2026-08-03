@@ -50,6 +50,9 @@ def main():
     ap.add_argument("--steps", type=int, default=12000)
     ap.add_argument("--lr", type=float, default=2e-3)
     ap.add_argument("--no-gate", action="store_true")
+    ap.add_argument("--replay", type=float, default=0.0,
+                    help="fraction of consolidation batches drawn from "
+                         "previously committed facts (0.3 = 30%%)")
     ap.add_argument("--varied", action="store_true",
                     help="heterogeneous domains per corpus: disjoint relations, "
                          "vocabulary and phrasing (0.5%% bigram overlap vs 68%%)")
@@ -70,7 +73,7 @@ def main():
     for p in model.parameters():
         p.requires_grad_(False)
 
-    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "")
+    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "")
     out = Path(a.out) / tag
     out.mkdir(parents=True, exist_ok=True)
     registry = KnowledgeRegistry(out / "registry.jsonl")
@@ -111,7 +114,7 @@ def main():
         consolidate(model, sub, corpus, registry, val_loss_fn, probe_fn, enc,
                     a.device, cycle=i, steps=a.steps, lr=a.lr,
                     gate=not a.no_gate, bucket_only=bucket_only,
-                    restructure_fn=restr_fn)
+                    restructure_fn=restr_fn, replay_frac=a.replay)
         # re-probe every corpus seen so far — this is the interference test
         for j, (pname, pcorpus) in enumerate(zip(names, corpora), start=1):
             if j <= i:
