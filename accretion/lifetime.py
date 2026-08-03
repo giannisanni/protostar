@@ -50,6 +50,8 @@ def main():
     ap.add_argument("--steps", type=int, default=12000)
     ap.add_argument("--lr", type=float, default=2e-3)
     ap.add_argument("--no-gate", action="store_true")
+    ap.add_argument("--adaptive-replay", action="store_true",
+                    help="scale replay with registry size instead of a fixed rate")
     ap.add_argument("--replay", type=float, default=0.0,
                     help="fraction of consolidation batches drawn from "
                          "previously committed facts (0.3 = 30%%)")
@@ -73,7 +75,7 @@ def main():
     for p in model.parameters():
         p.requires_grad_(False)
 
-    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "")
+    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "") + ("_adaptive" if a.adaptive_replay else "")
     out = Path(a.out) / tag
     out.mkdir(parents=True, exist_ok=True)
     registry = KnowledgeRegistry(out / "registry.jsonl")
@@ -114,7 +116,8 @@ def main():
         consolidate(model, sub, corpus, registry, val_loss_fn, probe_fn, enc,
                     a.device, cycle=i, steps=a.steps, lr=a.lr,
                     gate=not a.no_gate, bucket_only=bucket_only,
-                    restructure_fn=restr_fn, replay_frac=a.replay)
+                    restructure_fn=restr_fn, replay_frac=a.replay,
+                    adaptive_replay=a.adaptive_replay, baseline_val=base_val)
         # re-probe every corpus seen so far — this is the interference test
         for j, (pname, pcorpus) in enumerate(zip(names, corpora), start=1):
             if j <= i:

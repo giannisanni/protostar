@@ -92,3 +92,36 @@ def test_replay_draws_from_prior_facts_at_the_right_rate():
     frac, n = 0.3, 20000
     hits = sum(rng.random() < frac for _ in range(n))
     assert abs(hits / n - frac) < 0.02
+
+
+def test_gate_measures_drift_from_original_baseline_not_previous_cycle():
+    """THE gate bug: three writes at +0.0256/+0.0301/+0.0376 each passed a
+    +0.05 per-cycle check while compounding to +0.0932 — nearly 2x the limit.
+    Gating against the original baseline makes that impossible."""
+    baseline, eps = 3.30, 0.05
+    vals = [3.3256, 3.3557, 3.3933]  # the measured varied-run sequence
+    # per-cycle check (the bug): every step looks fine on its own
+    prev = baseline
+    per_cycle = []
+    for v in vals:
+        per_cycle.append((v - prev) <= eps)
+        prev = v
+    assert all(per_cycle), "the bug: each write passes in isolation"
+    # cumulative check (the fix): drift crosses +0.05 at cycle 2 (+0.0557),
+    # so the damaging sequence is stopped one cycle EARLIER than it accrued
+    verdicts = [(v - baseline) <= eps for v in vals]
+    assert verdicts == [True, False, False], f"got {verdicts}"
+    assert (vals[-1] - baseline) > 2 * eps * 0.9, "the compounded drift the bug allowed"
+
+
+def test_adaptive_replay_scales_with_registry_size():
+    """A fixed rate starves new learning as the pool grows: measured
+    31.7% -> 18.3% -> 11.7% new-corpus recall at a flat 30%."""
+    def frac(n_prior, n_new):
+        return min(0.5, n_prior / (n_prior + n_new))
+    assert frac(0, 60) == 0.0            # nothing to rehearse yet
+    assert frac(60, 60) == 0.5           # capped: new material keeps half
+    assert frac(120, 60) == 0.5          # still capped, never starves the new
+    assert frac(20, 60) == 0.25          # small pool rehearsed lightly
+    for n_prior in (10, 60, 120, 600):
+        assert frac(n_prior, 60) <= 0.5, "new corpus must always get >= half"

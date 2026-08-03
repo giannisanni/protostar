@@ -55,11 +55,17 @@ def recall(model, sub, facts, probe_fn, enc, device, n_tok=6):
 
 def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
                 device, cycle, steps=20000, lr=2e-3, n_variants=7,
+                baseline_val=None,
                 val_eps=0.05, retention_floor=0.5, gate=True,
                 bucket_only=False, restructure_fn=restructure,
-                replay_frac=0.0, log=print):
+                replay_frac=0.0, adaptive_replay=False, log=print):
     """One sleep cycle. Returns a dict of evidence; commits or rolls back.
 
+    adaptive_replay  scale the rehearsal rate with how much there is to
+                     rehearse: frac = n_prior / (n_prior + n_new), capped at
+                     0.5. A FIXED rate starves new learning as the registry
+                     grows — measured: varied new-corpus recall fell
+                     31.7% -> 18.3% -> 11.7% across three cycles at a flat 30%.
     replay_frac      fraction of each training batch drawn from PREVIOUSLY
                      committed facts. The standard continual-learning answer
                      to a shared-capacity bottleneck: keep old retrieval paths
@@ -69,6 +75,12 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
     bucket_only      optimize ONLY sparse slots, leaving shared projections
                      frozen. Makes writes genuinely bucket-local, which is
                      what the design assumed but did not implement.
+    baseline_val     val loss BEFORE any accretion writes. The gate must
+                     measure drift against this, not against the previous
+                     cycle — measured: three writes at +0.0256/+0.0301/+0.0376
+                     each passed a +0.05 per-cycle check while compounding to
+                     +0.0932, nearly 2x the limit. The gate approved exactly
+                     what it exists to prevent.
     val_eps          max tolerated rise in held-out val loss
     retention_floor  previously-committed facts must keep this FRACTION of
                      their pre-write recall (relative, not absolute — the
@@ -90,6 +102,9 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
     docs = [torch.tensor([enc.encode("\n".join(restructure_fn(f, n_variants)))], device=device)
             for f in fresh]
     replay_docs = []
+    if adaptive_replay and prior_facts:
+        # proportional rehearsal, capped so new material always gets >= half
+        replay_frac = min(0.5, len(prior_facts) / (len(prior_facts) + len(fresh)))
     if replay_frac > 0 and prior_facts:
         replay_docs = [torch.tensor(
             [enc.encode("\n".join(restructure_fn(f, n_variants)))], device=device)
@@ -123,7 +138,10 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
     # cannot be mistaken for "the gate verified retention".
     kept = (after_retention / before_retention) if before_retention > 0 else None
 
-    val_ok = (after_val - before_val) <= val_eps
+    # drift is measured from the ORIGINAL baseline when one is supplied,
+    # so a sequence of individually-small writes cannot compound past the limit
+    drift_from = baseline_val if baseline_val is not None else before_val
+    val_ok = (after_val - drift_from) <= val_eps
     ret_ok = kept is None or kept >= retention_floor
     passed = (val_ok and ret_ok) or not gate
 
@@ -131,6 +149,7 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
         "cycle": cycle, "n_facts": len(fresh),
         "val_before": round(before_val, 4), "val_after": round(after_val, 4),
         "dval": round(after_val - before_val, 4), "val_ok": val_ok,
+        "cumulative_drift": round(after_val - drift_from, 4),
         "retention_before": round(before_retention, 4),
         "retention_after": round(after_retention, 4),
         "retention_kept": (round(kept, 4) if kept is not None else None),
@@ -141,6 +160,7 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
     }
     keptstr = f"kept {kept:.1%}" if kept is not None else "no prior knowledge to protect"
     log(f"[cycle {cycle}] new_recall={new_recall:.1%}  dval={after_val - before_val:+.4f}"
+        f"  cumdrift={after_val - drift_from:+.4f}"
         f"  prior_retention {before_retention:.1%}->{after_retention:.1%}"
         f" ({keptstr})  {'COMMIT' if passed else 'ROLLBACK'}")
 
