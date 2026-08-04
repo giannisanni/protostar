@@ -94,6 +94,7 @@ class FactStream:
         self.rng = random.Random(seed)
         self.buf, self.pos, self._n = [], 0, 0
         self.log = []  # (kind, fact_id, start_tok, end_tok) — for tests
+        self.facts = {}  # fact_id -> fact dict, survives episode clears (eval)
         self._episode()
 
     def _episode(self):
@@ -122,6 +123,7 @@ class FactStream:
             f.update(end=cur + len(toks), probes=self.rng.randint(2, 4), id=self._n)
             self._n += 1
             self.pool.append(f)
+            self.facts[f["id"]] = f
             self.log.append(("state", f["id"], cur, f["end"]))
             return toks
         t = self.rng.choice(_FILLER_T)

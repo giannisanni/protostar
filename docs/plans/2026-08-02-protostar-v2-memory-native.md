@@ -923,3 +923,48 @@ answers are reachable through the carried memory state or not at all.
 Guards: fresh-memory FineWeb val reported (expect <= 3.55; it starts from a
 3.46 checkpoint and 25% of tokens are now synthetic); gate watched for
 collapse; NaN guard active.
+
+### RESULT: pre-registered negative — and this time it is REAL
+
+Run: 393M tokens, 3.5h, gate 1.0 throughout, final fresh-memory val 3.4635
+(identical to the stateful phase's 3.4598 — the curriculum was free).
+
+| eval | result |
+|---|---|
+| MECHANISM (curriculum format, unseen facts, one-shot) | 0-2% (1 stray hit/60) |
+| TRANSFER (facts.py format) | 0.0% everywhere |
+
+Because three earlier 0%s in this project were harness bugs, the negative
+was verified IN-DISTRIBUTION before acceptance (`accretion/currprobe.py`):
+fresh FactStream windows, 1,178 cross-window probes, argmax accuracy on
+answer tokens, carried state vs state reset every window:
+
+    PERSIST first-token 11.4%   FRESH 9.2%   memory contribution +2.2%
+
+The model did not learn retrieval even on its own training task. Not a
+format mismatch, not an age problem, not a harness bug.
+
+### The structural suspect: the detach severs the write-side gradient
+
+TBPTT truncation (`state.detach()` at every chunk/window boundary) means a
+probe's loss can NEVER reach the projections that WROTE the fact — cross-
+window writes are untrainable by construction. Only the read side (wq,
+gate, proj, downstream layers) receives cross-window gradient, and it must
+decode whatever a write-path-trained-for-within-window-use happens to
+store, out of a single decaying 640x640 linear map holding dozens of
+interfering facts. +2.2% over 393M tokens says that read-only lever is
+nearly powerless at this scale.
+
+### Where this leaves the lane
+
+- One-shot writes remain mechanically sound (fast, zero-parameter) but
+  UNREADABLE: three rounds now agree the bottleneck is the memory
+  architecture's trainability, not data, not persistence, not format.
+- Candidate next levers, each a REAL design change (fresh pre-registration
+  if pursued): (a) backprop through k>1 windows of state (memory cost
+  grows linearly, k=4-8 plausible at window 512); (b) auxiliary readback
+  loss at write time (force the state to be linearly decodable for every
+  fact written this window — self-supervised, no long BPTT needed);
+  (c) slot/PKM-style non-decaying memory instead of a single matrix.
+- The gradient-based accretion system (replay + gate) is still the only
+  WORKING path to persistent knowledge in this codebase, dial and all.
