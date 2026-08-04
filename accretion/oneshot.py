@@ -85,6 +85,9 @@ def main():
     ap.add_argument("--facts-per-corpus", type=int, default=60)
     ap.add_argument("--passes", type=int, default=1, help="write passes per fact")
     ap.add_argument("--varied", action="store_true")
+    ap.add_argument("--curriculum", action="store_true",
+                    help="eval in the TRAINING curriculum format on unseen "
+                         "facts (seed 999+) — the mechanism test")
     ap.add_argument("--device", default="cuda:0")
     a = ap.parse_args()
 
@@ -99,7 +102,13 @@ def main():
     for p in model.parameters():
         p.requires_grad_(False)
 
-    if a.varied:
+    if a.curriculum:
+        from accretion.curriculum import (eval_probe, eval_statement,
+                                          make_eval_facts)
+        corpora = [make_eval_facts(a.facts_per_corpus, seed=999 + i)
+                   for i in range(a.corpora)]
+        probe_fn, restr_fn = eval_probe, eval_statement
+    elif a.varied:
         corpora = [make_varied_facts(a.facts_per_corpus, domain=i, seed=100)
                    for i in range(a.corpora)]
         probe_fn, restr_fn = varied_probe, varied_restructure
@@ -110,7 +119,8 @@ def main():
     names = [chr(ord("A") + i) for i in range(a.corpora)]
     val = Shards(a.data, "val", 4, cfg.seq_len)
 
-    print(f"=== ONE-SHOT ASSOCIATIVE WRITES ({'varied' if a.varied else 'homogeneous'}) "
+    mode = "curriculum" if a.curriculum else "varied" if a.varied else "homogeneous"
+    print(f"=== ONE-SHOT ASSOCIATIVE WRITES ({mode}) "
           f"— {a.corpora}x{a.facts_per_corpus} facts, {a.passes} pass(es), NO optimizer ===",
           flush=True)
 

@@ -881,3 +881,45 @@ lane's window N contains information that windows N+1..N+k are graded on
 (synthetic fact streams / needle tasks mixed at 5-10% of lanes). That is a
 data-generator change on the same infra, ~3h per round — the next cheapest
 falsifiable step, to be pre-registered separately if run.
+
+## RETRIEVAL-CURRICULUM ROUND (pre-registered)
+
+Tolerance was learned from plain FineWeb; retrieval was not, because FineWeb
+rarely REQUIRES cross-window recall. This round makes retrieval a dense
+reward: every 4th global lane (25%) carries a synthetic fact stream
+(`accretion/curriculum.py`) where a fact is stated once and probed 1-20
+windows later. Attention sees only the current 512-token window, so probe
+answers are reachable through the carried memory state or not at all.
+
+### Setup
+
+- init: `runs/v2_persist/ckpt_003000.pt` (already state-tolerant; isolates
+  "add retrieval")
+- `CurriculumShards`: FineWeb lanes unchanged (contiguous, random resets);
+  curriculum lanes reset exactly at episode boundaries (8-24 windows) — a
+  mid-episode random reset would grade the model on facts its memory no
+  longer holds, teaching distrust
+- anti-leak invariant, TESTED: a probe never shares a 513-token window with
+  any earlier mention of its fact (mention-END to probe-START > window+1);
+  probes themselves count as mentions (teacher forcing includes the answer)
+- training vocab (syllables, 4 relations, generated objects) provably
+  disjoint from the facts.py eval vocab — tested — so the standard eval
+  measures TRANSFER, not leakage
+- same budget as the stateful phase: 3000 steps, window 512, batch 16,
+  accum 8, 2 ranks (~393M tokens, ~3.5h), muon 0.005 / adam 1e-4,
+  warmup 100, decay from 2000
+
+### Decision metrics (both run on the final checkpoint, 60 facts, 1 pass)
+
+1. MECHANISM — `oneshot.py --curriculum` (training format, unseen seed 999):
+   - >=30%: the model can read cross-sequence memory; mechanism validated
+   - 5-30%: partial signal; one tuning round (cur_every, episode length)
+   - <5%: curriculum at this scale/budget insufficient; documented negative
+2. TRANSFER — `oneshot.py` standard (facts.py format, currently 0%):
+   - >=20%: full success -> greenlight v3 pretrain with curriculum baked in
+   - <5% while mechanism >=30%: reading is format-bound; next lever is
+     format diversity in the curriculum, not more tokens
+
+Guards: fresh-memory FineWeb val reported (expect <= 3.55; it starts from a
+3.46 checkpoint and 25% of tokens are now synthetic); gate watched for
+collapse; NaN guard active.

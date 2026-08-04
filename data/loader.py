@@ -90,3 +90,37 @@ class StatefulShards(Shards):
                     idx -= n
             self.pos += 1
             yield torch.stack(rows)
+
+
+class CurriculumShards(StatefulShards):
+    """StatefulShards with every cur_every-th GLOBAL lane replaced by a
+    synthetic retrieval-curriculum stream (accretion/curriculum.py).
+
+    Yields (batch, reset_mask) instead of a bare batch: FineWeb lanes reset
+    randomly (reset_prob), curriculum lanes reset exactly at their episode
+    boundaries — a random reset mid-episode would grade the model on facts
+    its memory no longer holds, teaching it memory CANNOT be trusted.
+    Curriculum streams are not resume-exact (fresh episodes after a restart);
+    they are synthetic, so nothing is lost."""
+
+    def __init__(self, dirpath, split, batch, seq_len, rank=0, world=1,
+                 cur_every=4, reset_prob=0.0625, seed=1337):
+        super().__init__(dirpath, split, batch, seq_len, rank=rank, world=world)
+        import tiktoken
+
+        from accretion.curriculum import FactStream
+        enc = tiktoken.get_encoding("gpt2")
+        self.streams = {b: FactStream(enc, seq_len, seed + rank * batch + b)
+                        for b in range(batch) if (rank * batch + b) % cur_every == 0}
+        self.reset_prob = reset_prob
+
+    def batches(self):
+        inner = super().batches()
+        while True:
+            batch = next(inner)
+            mask = torch.rand(self.batch) < self.reset_prob
+            for b, fs in self.streams.items():
+                toks, reset = fs.next_window()
+                batch[b] = torch.tensor(toks, dtype=torch.int64)
+                mask[b] = reset
+            yield batch, mask

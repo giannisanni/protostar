@@ -13,7 +13,7 @@ from dataclasses import dataclass, fields
 import torch
 import torch.distributed as dist
 
-from data.loader import Shards, StatefulShards
+from data.loader import CurriculumShards, Shards, StatefulShards
 from model import Config, Protostar
 from muon import SingleDeviceMuonWithAuxAdam
 
@@ -40,6 +40,7 @@ class TrainConfig:
     #                  make docs span windows, so memory is the ONLY channel
     #                  to earlier context — that is what rewards reading it
     reset_prob: float = 0.0625  # per-lane reset chance per window (mean age 1/p)
+    cur_every: int = 0  # 0=off; N = every Nth global lane is a retrieval-curriculum stream
     init_from: str = ""  # load model WEIGHTS only: fresh optimizer/loader/step
 
 
@@ -117,9 +118,14 @@ def train(cfg: Config, t: TrainConfig) -> float:
     if t.stateful:
         assert cfg.fast_memory, "--stateful needs a fast-memory config"
         raw.persist_memory = True
-    Loader = StatefulShards if t.stateful else Shards
-    loader = Loader(t.data_dir, "train", t.batch, t.window or cfg.seq_len,
-                    rank=rank, world=world)
+    if t.stateful and t.cur_every:
+        loader = CurriculumShards(t.data_dir, "train", t.batch, t.window or cfg.seq_len,
+                                  rank=rank, world=world, cur_every=t.cur_every,
+                                  reset_prob=t.reset_prob, seed=t.seed)
+    else:
+        Loader = StatefulShards if t.stateful else Shards
+        loader = Loader(t.data_dir, "train", t.batch, t.window or cfg.seq_len,
+                        rank=rank, world=world)
 
     start = 0
     if t.init_from:  # weights only — a NEW phase, not a resume
@@ -162,9 +168,13 @@ def train(cfg: Config, t: TrainConfig) -> float:
             g["lr"] = (t.muon_lr if g.get("use_muon") else t.adam_lr) * lr_mult(step, t)
         total = 0.0
         for micro in range(t.accum):
-            batch = next(batches).to(device, non_blocking=True)
-            if t.stateful:
+            nxt = next(batches)
+            if isinstance(nxt, tuple):  # curriculum loader decides the resets
+                nxt, rmask = nxt
+                raw.fast.reset_lanes(rmask)
+            elif t.stateful:
                 raw.fast.reset_lanes(torch.rand(t.batch) < t.reset_prob)
+            batch = nxt.to(device, non_blocking=True)
             if ddp:  # skip grad sync except on last micro-batch
                 model.require_backward_grad_sync = micro == t.accum - 1
             with amp:
