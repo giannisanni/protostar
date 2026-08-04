@@ -13,7 +13,7 @@ from dataclasses import dataclass, fields
 import torch
 import torch.distributed as dist
 
-from data.loader import Shards
+from data.loader import Shards, StatefulShards
 from model import Config, Protostar
 from muon import SingleDeviceMuonWithAuxAdam
 
@@ -34,6 +34,13 @@ class TrainConfig:
     ckpt_every: int = 1000
     resume: str = ""
     seed: int = 1337
+    # --- stateful phase (teach the model to READ old memory) ---
+    stateful: int = 0  # persist fast-memory state across windows, per lane
+    window: int = 0  # train seq_len override (0 = cfg.seq_len); short windows
+    #                  make docs span windows, so memory is the ONLY channel
+    #                  to earlier context — that is what rewards reading it
+    reset_prob: float = 0.0625  # per-lane reset chance per window (mean age 1/p)
+    init_from: str = ""  # load model WEIGHTS only: fresh optimizer/loader/step
 
 
 def lr_mult(step, t: TrainConfig):
@@ -67,6 +74,13 @@ def build_optimizer(model, t: TrainConfig):
 def val_loss(model, cfg, t, device):
     model.eval()
     mtp_prev, cfg.mtp = cfg.mtp, False  # ponytail: val compares MAIN-head CE only across arms
+    # a persistent-memory model must not let val batches PROBE or POLLUTE the
+    # training lanes' state: measure with fresh memory (comparable to the v2
+    # baseline) and restore the lanes afterwards
+    persist = getattr(model, "persist_memory", False)
+    if persist:
+        model.persist_memory = False
+        lanes = model.fast._state, model.fast._mom
     loader = Shards(t.data_dir, "val", t.batch, cfg.seq_len)
     losses = []
     for batch, _ in zip(loader.batches(), range(t.val_batches)):
@@ -74,6 +88,9 @@ def val_loss(model, cfg, t, device):
         _, loss = model(batch[:, :-1], targets=batch[:, 1:])
         losses.append(loss.item())
     cfg.mtp = mtp_prev
+    if persist:
+        model.persist_memory = True
+        model.fast._state, model.fast._mom = lanes
     model.train()
     return sum(losses) / len(losses)
 
@@ -97,9 +114,18 @@ def train(cfg: Config, t: TrainConfig) -> float:
 
         model.register_comm_hook(dist.group.WORLD, bf16_compress_hook)  # halves comm on the x1 link
     opt = build_optimizer(raw, t)
-    loader = Shards(t.data_dir, "train", t.batch, cfg.seq_len, rank=rank, world=world)
+    if t.stateful:
+        assert cfg.fast_memory, "--stateful needs a fast-memory config"
+        raw.persist_memory = True
+    Loader = StatefulShards if t.stateful else Shards
+    loader = Loader(t.data_dir, "train", t.batch, t.window or cfg.seq_len,
+                    rank=rank, world=world)
 
     start = 0
+    if t.init_from:  # weights only — a NEW phase, not a resume
+        ck = torch.load(t.init_from, map_location="cpu", weights_only=True)
+        raw.load_state_dict(ck["model"])
+        del ck
     if t.resume:
         # map_location="cpu" + del: loading straight to the GPU keeps a second
         # copy of the optimizer state alive in `ck`, which costs ~0.5GB and
@@ -137,6 +163,8 @@ def train(cfg: Config, t: TrainConfig) -> float:
         total = 0.0
         for micro in range(t.accum):
             batch = next(batches).to(device, non_blocking=True)
+            if t.stateful:
+                raw.fast.reset_lanes(torch.rand(t.batch) < t.reset_prob)
             if ddp:  # skip grad sync except on last micro-batch
                 model.require_backward_grad_sync = micro == t.accum - 1
             with amp:
@@ -153,6 +181,8 @@ def train(cfg: Config, t: TrainConfig) -> float:
             nan_streak = getattr(train, "_nan_streak", 0) + 1
             train._nan_streak = nan_streak
             opt.zero_grad(set_to_none=True)
+            if t.stateful:  # the aged state itself may be the poison
+                raw.fast.reset(t.batch, device)
             if rank == 0:
                 print(f"step {step + 1}: non-finite loss, skipping (streak {nan_streak})", flush=True)
             if nan_streak >= 5:
@@ -163,14 +193,17 @@ def train(cfg: Config, t: TrainConfig) -> float:
         opt.zero_grad(set_to_none=True)
         last = total
         if rank == 0 and (step + 1) % 20 == 0:
-            toks = 20 * world * t.batch * t.accum * cfg.seq_len
+            toks = 20 * world * t.batch * t.accum * (t.window or cfg.seq_len)
             dt = time.time() - t0
             t0 = time.time()
             vl = ""
             if t.val_every and (step + 1) % t.val_every == 0:
                 vl = f"{val_loss(raw, cfg, t, device):.4f}"
             line = f"{step + 1},{(step + 1) * toks // 20},{total:.4f},{lr_mult(step, t):.3f},{toks / dt:.0f},{vl}"
-            print(line, flush=True)
+            # gate to stdout only (not the CSV — report.py parses that): a gate
+            # collapsing to ~0 means the model learned to IGNORE old memory,
+            # which is this experiment's silent-failure mode
+            print(line + (f" gate={raw.last_gate:.3f}" if cfg.fast_memory else ""), flush=True)
             log.write(line + "\n")
             log.flush()
         if t.ckpt_every and (step + 1) % t.ckpt_every == 0:

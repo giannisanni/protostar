@@ -64,3 +64,29 @@ class Shards:
                     idx -= n
             self.pos += 1
             yield torch.stack(rows)
+
+
+class StatefulShards(Shards):
+    """Each lane streams CONTIGUOUS windows: lane b's window at pos+1 continues
+    the same token stream as its window at pos. Plain Shards deals consecutive
+    windows to DIFFERENT lanes, which makes cross-window memory pure noise —
+    the model would (correctly) learn to ignore a persistent state. Lanes get
+    disjoint spans of the stream so they never collide."""
+
+    def batches(self):
+        window = self.seq_len + 1
+        shards = [read_shard(p) for p in self.paths]
+        counts = [len(s) // window for s in shards]
+        span = sum(counts) // (self.world * self.batch)
+        while True:
+            rows = []
+            for b in range(self.batch):
+                idx = (self.rank * self.batch + b) * span + self.pos % span
+                for shard, n in zip(shards, counts):
+                    if idx < n:
+                        a = np.asarray(shard[idx * window : (idx + 1) * window], dtype=np.int64)
+                        rows.append(torch.from_numpy(a))
+                        break
+                    idx -= n
+            self.pos += 1
+            yield torch.stack(rows)

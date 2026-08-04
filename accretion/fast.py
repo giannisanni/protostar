@@ -49,6 +49,16 @@ class FastMemory(nn.Module):
         self._state = self.m0.detach().to(dev, dt).expand(batch, -1, -1).clone()
         self._mom = torch.zeros_like(self._state)
 
+    def reset_lanes(self, mask):
+        """Per-lane reset for stateful training. Random resets keep states of
+        many AGES in-distribution — a model that only ever sees fresh state
+        cannot read an old one (measured: one-shot writes, 0% recall)."""
+        if self._state is None or not mask.any():
+            return
+        m = mask.to(self._state.device)
+        self._state[m] = self.m0.detach().to(self._state.dtype)
+        self._mom[m] = 0.0
+
     def gate_values(self, h):
         g = torch.sigmoid(self.gates(h))
         eta = self.base_lr * g[..., 0:1]

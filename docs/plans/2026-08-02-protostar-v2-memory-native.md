@@ -813,3 +813,41 @@ as noise. The +0.42 drift is that noise being injected into general text.
    `Protostar.forward`. First symptom was a suspiciously exact `drift=0.0000`.
 2. `FastMemory` silently reset when batch size changed, so a store written
    at B=1 was wiped by evaluation at B=4. Now broadcasts instead.
+
+## STATEFUL PHASE: teach v2 to read old memory (pre-registered)
+
+One-shot writes failed because cross-sequence states are out of distribution,
+not because the mechanism is wrong. Before paying for a from-scratch v3
+(~17h), continue-pretrain the existing v2 checkpoint so old states become
+IN-distribution. Thresholds written BEFORE the run, per project rule.
+
+### Setup
+
+- init: `runs/v2_m1/ckpt_007630.pt`, weights only (`--init_from`)
+- `StatefulShards`: each lane streams CONTIGUOUS windows — window pos+1
+  continues window pos, so memory written earlier is REWARDED at read time.
+  Plain Shards deals consecutive windows to different lanes (old state = noise,
+  model would learn to gate it out).
+- `--window 512` at cfg.seq_len 2048: docs span windows, so memory is the
+  ONLY channel to earlier context. Attention/GDN still reset per window —
+  clean experimental isolation of the fast-memory channel.
+- `--reset_prob 0.0625` per lane per window: geometric age distribution,
+  mean 16 windows (~8k tokens) — states of many ages in-distribution.
+- 3000 steps, batch 16, accum 8, 2 ranks = ~393M tokens (~3.5h).
+  muon_lr 0.005, adam_lr 1e-4, warmup 100, decay from step 2000.
+- val stays at 2048 with FRESH memory (guarded restore) — directly
+  comparable to the v2 baseline 3.32.
+
+### Decision metric (run oneshot.py on the new checkpoint)
+
+60 homogeneous facts, 1 write pass, L1 probe — currently 0.0%:
+
+- **>=20%** — validated; greenlight the full v3 pretrain
+- **5-20%** (3+/60) — signal exists; one tuning round (passes, reset_prob)
+- **<5% with gate open** — model cannot learn to read old state at this
+  scale/budget; documented negative
+- **gate collapses toward 0 during training** — model actively learned to
+  IGNORE old state; different negative: FineWeb streams carry too little
+  cross-window signal to make memory pay
+
+Guards: fresh-memory val <= 3.37 (baseline + 0.05); NaN guard resets lanes.
