@@ -851,3 +851,33 @@ IN-distribution. Thresholds written BEFORE the run, per project rule.
   cross-window signal to make memory pay
 
 Guards: fresh-memory val <= 3.37 (baseline + 0.05); NaN guard resets lanes.
+
+### RESULT: tolerance learned, retrieval not (documented negative)
+
+Run completed: 393M tokens, 3.5h, gate pinned at 1.0 throughout.
+Fresh-memory val 3.4598 — ABOVE the 3.37 guard (+0.14 vs baseline);
+guard formally violated, reported per pre-registration.
+
+| capability | old v2 | after stateful phase |
+|---|---|---|
+| within-sequence recall (D1) | perfect | **100%** |
+| cross-sequence recall, 60 facts | 0% | **0%** |
+| cross-sequence recall, 1 fact age 1 | 0% | **0%** |
+| drift from carried state | +0.42 | **+0.003** |
+
+Per pre-registration this is the "<5% with gate open" branch. The diagnosis
+is sharper than either pre-registered negative: the model learned to
+TOLERATE old state — drift collapsed 140x, the cheap and dense reward on
+FineWeb — without learning to RETRIEVE from it, the sparse tail. Ordinary
+web text mostly does not NEED cross-window recall: the next 512 tokens are
+predictable from local context, so "denoise the carried state" dominates
+the gradient and "pull a specific fact back out" barely appears.
+
+Implication for the lane: persistence alone is NOT enough — and this also
+downgrades the naive full v3 pretrain, which would face the same objective
+and plausibly learn the same tolerance-without-retrieval. What the lane
+needs is data that REQUIRES cross-sequence retrieval: a curriculum where a
+lane's window N contains information that windows N+1..N+k are graded on
+(synthetic fact streams / needle tasks mixed at 5-10% of lanes). That is a
+data-generator change on the same infra, ~3h per round — the next cheapest
+falsifiable step, to be pre-registered separately if run.
