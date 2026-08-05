@@ -65,6 +65,9 @@ consolidations, without degrading general ability.
 | `accretion/lifetime.py` | the benchmark: sequential corpora, interference matrix |
 | `accretion/probe_ladder.py` | recall at four paraphrase difficulties + memory-free ceiling |
 | `accretion/fast.py` | TTT-Linear fast memory (used in the v2 pretrain) |
+| `accretion/oneshot.py` | one-shot associative writes: facts by forward pass, zero parameter change |
+| `accretion/curriculum.py` | synthetic retrieval curriculum: facts probed 1-20 windows later, leak-tested |
+| `accretion/currprobe.py` | in-distribution verifier: memory contribution over 1,000+ probes |
 
 ### Three findings that shaped it
 
@@ -114,6 +117,37 @@ fact, restoring a bit-exact snapshot on failure.
 
 ---
 
+## v2: the memory-native line (one-shot writes)
+
+The retention/plasticity/drift dial above is a property of *gradient-descent*
+writes. v2 pretrained the backbone jointly with the TTT-Linear fast memory
+(gated parallel branch at layer 12) so a fact could instead be written by a
+single forward pass — 14ms/fact, **zero parameters changed**, nothing to
+trade. Three rounds, each pre-registered, each ~393M tokens / 3.5h:
+
+| round | change | outcome |
+|---|---|---|
+| one-shot on v2 | keep the state across sequences at inference | 0% recall; old state read as **noise** (drift +0.42). Pretraining reset the state every sequence, so cross-sequence states are out-of-distribution |
+| stateful phase | per-lane contiguous streams; state persists through training | **tolerance learned, retrieval not**: drift +0.42 → +0.003, but recall 0% even for one fact one sequence old (within-sequence recall still 100%) |
+| retrieval curriculum | 25% of lanes carry fact streams probed 1-20 windows later (leak-tested; vocab disjoint from eval) | still ~0%. Verified **in-distribution**: over 1,178 probes, carried memory lifts answer-token accuracy just **+2.2%** vs memory wiped every window |
+
+General-ability val was unaffected in both training rounds (3.46 in each) —
+the curriculum was free; it just taught nothing.
+
+**Why (structural):** TBPTT detaches the memory state at every window
+boundary, so a probe's loss can never reach the projections that *wrote* the
+fact — cross-window writes are untrainable by construction. Only the read
+side gets gradient, and it must decode a single decaying 640×640 linear map
+holding dozens of interfering facts.
+
+**Open levers** — design changes, not more tokens: (a) auxiliary readback
+loss at write time (make the state decodable, self-supervised); (b) BPTT
+through several windows of state; (c) slot/product-key state instead of one
+matrix. Until one is built and measured, **replay + gate above remains the
+working system**.
+
+---
+
 ## Methodology
 
 Two probe-design errors, opposite directions, both caught before they became
@@ -147,7 +181,9 @@ PROTOSTAR_DATA=/mnt/data/protostar python env/check_env.py   # preflight
 sh scripts/ablate.sh                                          # ablation queue
 python accretion/probe_ladder.py --ckpt <ckpt>                # recall vs paraphrase
 python accretion/lifetime.py --ckpt <ckpt> --varied --replay 0.3   # the claim
-pytest -q                                                     # 60 tests
+python accretion/oneshot.py --ckpt <ckpt> --data <data>       # one-shot writes
+python accretion/currprobe.py --ckpt <ckpt>                   # memory contribution
+pytest -q                                                     # 73 tests
 ```
 
 ### GPU layout on substrate (with `PCI_BUS_ID` set, verified 2026-08-02)
