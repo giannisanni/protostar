@@ -186,13 +186,12 @@ python accretion/currprobe.py --ckpt <ckpt>                   # memory contribut
 pytest -q                                                     # 73 tests
 ```
 
-### GPU layout on substrate (with `PCI_BUS_ID` set, verified 2026-08-02)
-
-| CUDA id | card | PCIe under load | use for |
+### GPU layout on substrate (with `PCI_BUS_ID` set, re-verified 2026-11-12)
+| CUDA id | card | PCIe width | notes |
 |---|---|---|---|
-| 0 | 5060 Ti | Gen5 x8 | single-GPU jobs — fastest |
-| 1 | 4060 Ti | Gen4 x4 | serving / spillover |
-| 2 | 5060 Ti | Gen5 **x1** (crippled slot) | training pair only |
+| 0 | 5060 Ti | x8 | |
+| 1 | 5060 Ti | x8 | the old x1 slot is fixed |
+| 2 | 4060 Ti | x4 | normally om-model (vLLM :8607) + mentat |
 
 Idle cards report Gen1 because PCIe downtrains at low power; **width** is the
 real number. Data lives at `/mnt/data/protostar/fineweb10B` (10.3B tokens).

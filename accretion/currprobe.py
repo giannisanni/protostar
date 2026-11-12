@@ -31,25 +31,36 @@ def find_sub(hay, needle, lo=0):
     return -1
 
 
+BUCKETS = ((1, 1), (2, 3), (4, 99))  # probe age in windows since last mention
+
+
 @torch.no_grad()
 def run_pass(model, windows, probe_spans, device, persist):
     model.persist_memory = True  # we control resets manually in both passes
     model.fast.reset(1, device)
     first_ok = first_n = all_ok = all_n = 0
+    by_age = {b: [0, 0] for b in BUCKETS}
     for wi, (toks, ep_reset) in enumerate(windows):
         if ep_reset or not persist:
             model.fast.reset(1, device)
         ids = torch.tensor([toks], device=device)
         logits, _ = model(ids[:, :-1])
         pred = logits[0].argmax(-1)  # pred[t] guesses toks[t+1]
-        for (w, start, obj_toks) in probe_spans:
+        for (w, start, obj_toks, age) in probe_spans:
             if w != wi:
                 continue
             first_n += 1
-            first_ok += int(pred[start - 1] == obj_toks[0])
+            hit = int(pred[start - 1] == obj_toks[0])
+            first_ok += hit
+            for b in BUCKETS:
+                if b[0] <= age <= b[1]:
+                    by_age[b][0] += hit
+                    by_age[b][1] += 1
             for k, ot in enumerate(obj_toks):
                 all_n += 1
                 all_ok += int(pred[start - 1 + k] == ot)
+    run_pass.by_age = {b: ok / max(n, 1) for b, (ok, n) in by_age.items()}
+    run_pass.age_n = {b: n for b, (_, n) in by_age.items()}
     return first_ok / max(first_n, 1), all_ok / max(all_n, 1), first_n
 
 
@@ -77,7 +88,9 @@ def main():
     for wi in range(a.windows):
         toks, reset = fs.next_window()
         windows.append((toks, reset))
+    last_end = {}  # fact id -> end token of its latest mention (statement or probe)
     for kind, fid, start, end in fs.log:
+        prev, last_end[fid] = last_end.get(fid), end
         if kind != "probe" or end >= a.windows * w:
             continue
         wi, lo = start // w, (start // w) * w
@@ -86,15 +99,20 @@ def main():
         obj = enc.encode(" " + fs.facts[fid]["object"])
         p = find_sub(windows[wi][0], obj, start - lo)
         if p > 0:
-            probe_spans.append((wi, p, obj))
+            probe_spans.append((wi, p, obj, wi - (prev - 1) // w))
 
     print(f"{len(probe_spans)} scoreable cross-window probes in {a.windows} windows",
           flush=True)
     fp, ap_, n = run_pass(model, windows, probe_spans, a.device, persist=True)
+    pa = run_pass.by_age
     print(f"PERSIST  first-token {fp:.1%}  all-tokens {ap_:.1%}  (n={n})", flush=True)
     ff, af, _ = run_pass(model, windows, probe_spans, a.device, persist=False)
+    fa, na = run_pass.by_age, run_pass.age_n
     print(f"FRESH    first-token {ff:.1%}  all-tokens {af:.1%}", flush=True)
     print(f"MEMORY CONTRIBUTION (first-token): {fp - ff:+.1%}", flush=True)
+    for b in BUCKETS:  # the ladder: K-window bptt directly trains only age <= K-1
+        print(f"  age {b[0]}-{b[1] if b[1] < 99 else '+'}: persist {pa[b]:.1%}  fresh {fa[b]:.1%}  "
+              f"contribution {pa[b] - fa[b]:+.1%}  (n={na[b]})", flush=True)
 
 
 if __name__ == "__main__":

@@ -42,6 +42,26 @@ class TrainConfig:
     reset_prob: float = 0.0625  # per-lane reset chance per window (mean age 1/p)
     cur_every: int = 0  # 0=off; N = every Nth global lane is a retrieval-curriculum stream
     init_from: str = ""  # load model WEIGHTS only: fresh optimizer/loader/step
+    bptt_windows: int = 1  # backprop through K consecutive windows per lane (needs stateful)
+
+
+def seed_cms(sd, target):
+    """Map a single-memory v2 checkpoint onto a MemoryStack model: every
+    level starts as a COPY of the trained memory (nested CMS: slower levels
+    are initialised from the faster level's meta-learned weights), then
+    diverges by update period. Keys the checkpoint lacks (aggregation
+    weights) keep their init. No-op for matching architectures."""
+    if not any(k.startswith("fast.levels.") for k in target) or \
+            any(k.startswith("fast.levels.") for k in sd):
+        return sd
+    out = {k: v for k, v in sd.items() if not k.startswith("fast.")}
+    for k in target:
+        if k.startswith("fast.levels."):
+            src = "fast." + k.split(".", 3)[3]
+            out[k] = sd[src] if src in sd else target[k]
+        elif k.startswith("fast."):
+            out[k] = sd.get(k, target[k])
+    return out
 
 
 def lr_mult(step, t: TrainConfig):
@@ -81,7 +101,7 @@ def val_loss(model, cfg, t, device):
     persist = getattr(model, "persist_memory", False)
     if persist:
         model.persist_memory = False
-        lanes = model.fast._state, model.fast._mom
+        lanes = model.fast.snapshot()
     loader = Shards(t.data_dir, "val", t.batch, cfg.seq_len)
     losses = []
     for batch, _ in zip(loader.batches(), range(t.val_batches)):
@@ -91,7 +111,7 @@ def val_loss(model, cfg, t, device):
     cfg.mtp = mtp_prev
     if persist:
         model.persist_memory = True
-        model.fast._state, model.fast._mom = lanes
+        model.fast.load(lanes)
     model.train()
     return sum(losses) / len(losses)
 
@@ -115,6 +135,7 @@ def train(cfg: Config, t: TrainConfig) -> float:
 
         model.register_comm_hook(dist.group.WORLD, bf16_compress_hook)  # halves comm on the x1 link
     opt = build_optimizer(raw, t)
+    assert t.accum % t.bptt_windows == 0, "accum must be a multiple of bptt_windows"
     if t.stateful:
         assert cfg.fast_memory, "--stateful needs a fast-memory config"
         raw.persist_memory = True
@@ -130,7 +151,7 @@ def train(cfg: Config, t: TrainConfig) -> float:
     start = 0
     if t.init_from:  # weights only — a NEW phase, not a resume
         ck = torch.load(t.init_from, map_location="cpu", weights_only=True)
-        raw.load_state_dict(ck["model"])
+        raw.load_state_dict(seed_cms(ck["model"], raw.state_dict()))
         del ck
     if t.resume:
         # map_location="cpu" + del: loading straight to the GPU keeps a second
@@ -167,6 +188,7 @@ def train(cfg: Config, t: TrainConfig) -> float:
         for g in opt.param_groups:
             g["lr"] = (t.muon_lr if g.get("use_muon") else t.adam_lr) * lr_mult(step, t)
         total = 0.0
+        chain = 0.0  # bptt: losses of consecutive windows, backpropped together
         for micro in range(t.accum):
             nxt = next(batches)
             if isinstance(nxt, tuple):  # curriculum loader decides the resets
@@ -179,8 +201,13 @@ def train(cfg: Config, t: TrainConfig) -> float:
                 model.require_backward_grad_sync = micro == t.accum - 1
             with amp:
                 _, loss = model(batch[:, :-1], targets=batch[:, 1:])
-            (loss / t.accum).backward()
+            chain = chain + loss / t.accum
             total += loss.item() / t.accum
+            if (micro + 1) % t.bptt_windows == 0:
+                chain.backward()
+                chain = 0.0
+                if t.stateful:  # truncation point: K windows of graph, no more
+                    raw.fast.detach_()
         if not torch.isfinite(torch.tensor(total)):
             # NaN guard: v2's data-dependent recurrent state can diverge (measured:
             # 1e15 within 5 steps before the k/q-norm fix). Skip the optimizer step
@@ -213,7 +240,12 @@ def train(cfg: Config, t: TrainConfig) -> float:
             # gate to stdout only (not the CSV — report.py parses that): a gate
             # collapsing to ~0 means the model learned to IGNORE old memory,
             # which is this experiment's silent-failure mode
-            print(line + (f" gate={raw.last_gate:.3f}" if cfg.fast_memory else ""), flush=True)
+            extra = f" gate={raw.last_gate:.3f}" if cfg.fast_memory else ""
+            if cfg.cms:
+                extra += " w=" + ",".join(f"{x:.3f}" for x in raw.fast.w.tolist())
+            if cfg.readback:
+                extra += f" aux={getattr(raw, 'last_aux', 0.0):.3f}"
+            print(line + extra, flush=True)
             log.write(line + "\n")
             log.flush()
         if t.ckpt_every and (step + 1) % t.ckpt_every == 0:

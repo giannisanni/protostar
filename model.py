@@ -36,6 +36,9 @@ class Config:
     fast_chunk: int = 32
     fast_layer: int = 12  # mid-stack: enough context to be worth memorizing
     mem_integration: str = "mag"  # gated parallel branch (Titans MAG > MAL)
+    # --- hope-lite: Continuum Memory System (Nested Learning, eq. 74) ---
+    cms: list = None  # [[chunk, base_decay, bptt], ...] fastest first; None = single FastMemory
+    readback: float = 0.0  # weight of the InfoNCE readback aux loss (bptt levels only)
     seq_len: int = 2048
 
     @property
@@ -148,9 +151,10 @@ class Protostar(nn.Module):
             self.mtp_norm = nn.RMSNorm(cfg.d)
             self.mtp_mlp = MLP(cfg)
         if cfg.fast_memory:
-            from accretion.fast import FastMemory
+            from accretion.fast import FastMemory, MemoryStack
 
-            self.fast = FastMemory(cfg.d, hidden=cfg.fast_hidden, chunk=cfg.fast_chunk)
+            self.fast = (MemoryStack(cfg.d, cfg.cms, cfg.readback) if cfg.cms else
+                         FastMemory(cfg.d, hidden=cfg.fast_hidden, chunk=cfg.fast_chunk))
             # MAG: memory is a GATED PARALLEL BRANCH, not an in-line residual add.
             # Titans measured MAG > MAL; v1 accidentally used MAL-shaped injection.
             self.fast_gate = nn.Linear(cfg.d, 1)
@@ -216,6 +220,10 @@ class Protostar(nn.Module):
         if targets is None:
             return self.lm_head(h), None
         loss = self._ce(h.view(-1, self.cfg.d), targets.reshape(-1))
+        if self.training and self.cfg.fast_memory and self.cfg.readback:
+            aux = self.fast.last_aux
+            self.last_aux = float(aux.detach()) if torch.is_tensor(aux) else aux
+            loss = loss + self.cfg.readback * aux
         if self.cfg.mtp:
             # predict t+2: merge h_t with embedding of the (known) next token
             m = self.mtp_norm(self.mtp_merge(torch.cat([h[:, :-1], self.embed(idx[:, 1:])], -1)))
