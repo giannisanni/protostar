@@ -91,3 +91,27 @@ def test_seed_cms_copies_trained_memory_into_every_level():
     _, loss = hope(x, targets=x)
     loss.backward()
     assert torch.isfinite(loss)
+
+
+def test_per_token_write_strength():
+    """per_token: constant eta reproduces per-chunk eta.mean; a token whose
+    own eta is 0 writes nothing (filler changed -> state unchanged)."""
+    torch.manual_seed(0)
+    h = torch.randn(1, 32, 16)
+    a, b = FastMemory(d=16), FastMemory(d=16, per_token=True)
+    b.load_state_dict(a.state_dict())
+    for fm in (a, b):
+        _live(fm)
+        fm.reset(1)
+        fm(h)
+    assert torch.allclose(a._state, b._state, atol=1e-6)
+
+    mask = (torch.arange(32) < 16).float().view(1, 32, 1)  # only first 16 tokens write
+    orig = FastMemory.gate_values
+    b.gate_values = lambda x: (lambda e, al, th: (e * mask, al, th))(*orig(b, x))
+    outs = []
+    for filler in (torch.randn(1, 16, 16), torch.randn(1, 16, 16)):
+        b.reset(1)
+        b(torch.cat([h[:, :16], filler], 1))
+        outs.append(b._state.clone())
+    assert torch.allclose(outs[0], outs[1], atol=1e-6), "zero-eta filler still wrote"

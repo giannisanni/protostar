@@ -38,6 +38,7 @@ class Config:
     mem_integration: str = "mag"  # gated parallel branch (Titans MAG > MAL)
     # --- hope-lite: Continuum Memory System (Nested Learning, eq. 74) ---
     cms: list = None  # [[chunk, base_decay, bptt], ...] fastest first; None = single FastMemory
+    per_token: bool = False  # per-token write strength in the fast memory (cms stack only)
     readback: float = 0.0  # weight of the InfoNCE readback aux loss (bptt levels only)
     seq_len: int = 2048
 
@@ -153,7 +154,7 @@ class Protostar(nn.Module):
         if cfg.fast_memory:
             from accretion.fast import FastMemory, MemoryStack
 
-            self.fast = (MemoryStack(cfg.d, cfg.cms, cfg.readback) if cfg.cms else
+            self.fast = (MemoryStack(cfg.d, cfg.cms, cfg.readback, cfg.per_token) if cfg.cms else
                          FastMemory(cfg.d, hidden=cfg.fast_hidden, chunk=cfg.fast_chunk))
             # MAG: memory is a GATED PARALLEL BRANCH, not an in-line residual add.
             # Titans measured MAG > MAL; v1 accidentally used MAL-shaped injection.

@@ -26,8 +26,12 @@ import torch.nn.functional as F
 
 class FastMemory(nn.Module):
     def __init__(self, d, hidden=None, chunk=32, base_lr=0.05, base_decay=0.99,
-                 bptt=False, readback=0.0, carry=False):
+                 bptt=False, readback=0.0, carry=False, per_token=False):
         super().__init__()
+        # per_token: each token's gradient is scaled by ITS OWN eta before the
+        # chunk sum (Titans / GDN per-token beta), so a fact can be written
+        # harder than filler. Off = v2's per-chunk eta.mean (bit-exact).
+        self.per_token = per_token
         # chunk = UPDATE PERIOD in tokens (Nested Learning's C^(l)). It may
         # exceed the window: gradients then accumulate across forward calls
         # and apply once per chunk (CMS eq. 71) -- a genuinely slower level.
@@ -150,11 +154,13 @@ class FastMemory(nn.Module):
             pred = torch.einsum("bde,bte->btd", state, kc)
             err = pred - vc
             surprise += float(err.pow(2).mean().detach())
+            if self.per_token:  # eta_t * (M k_t - v_t) k_t^T, lr folded into the sum
+                err = err * eta[:, e]
             pend = pend + torch.einsum("btd,bte->bde", err, kc)
             self._pend_n += n
             if self._pend_n >= self.chunk or (not self.carry and e.stop == T):  # update due
                 a = alpha[:, e].mean(1, keepdim=True)      # (B,1,1)
-                lr = eta[:, e].mean(1, keepdim=True)
+                lr = 1.0 if self.per_token else eta[:, e].mean(1, keepdim=True)
                 th = theta[:, e].mean(1, keepdim=True)
                 mom = th * mom + pend / self._pend_n
                 state = a * state - lr * mom
@@ -208,11 +214,11 @@ class MemoryStack(nn.Module):
 
     levels: [[chunk, base_decay, bptt], ...], fastest first."""
 
-    def __init__(self, d, levels, readback=0.0):
+    def __init__(self, d, levels, readback=0.0, per_token=False):
         super().__init__()
         self.levels = nn.ModuleList(
             FastMemory(d, chunk=c, base_decay=dec, bptt=bool(b),
-                       readback=readback if b else 0.0, carry=True)
+                       readback=readback if b else 0.0, carry=True, per_token=per_token)
             for c, dec, b in levels)
         # level 0 carries the trained v2 signal; slower levels start small but
         # NOT zero (a zero weight starves their projections of gradient)
