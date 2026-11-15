@@ -1,0 +1,315 @@
+\documentclass[11pt]{article}
+\usepackage[margin=1in]{geometry}
+\usepackage{booktabs,amsmath,hyperref,xcolor,graphicx}
+\usepackage[numbers]{natbib}
+\newcommand{\todo}[1]{\textcolor{red}{[TODO: #1]}}
+
+\title{Androids Dream of the Sheep They Saw That Day:\\
+Test-Time Memory and Dream Consolidation in a Small Language Model}
+\author{Gianni Sanrochman\\\texttt{gsanrochman@proton.me}}
+\date{November 2026 \quad (draft)}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+We build and measure a complete learn-by-day, consolidate-by-night loop in a
+134M-parameter language model. During the day the model reads a text stream
+with its weights frozen; new facts live only in a fast tier, a cache of the
+previous window's attention keys and values. At night the model is cued with
+answer-free prompts about the day and completes them from that cache. These
+\emph{dreams}, filtered by self-consistency voting, are the only training
+data for a set of sparse lifetime tables; a gate on held-out loss and on
+recall of everything committed before can roll the write back. No ground-truth
+answer enters consolidation. Three results stand out. (1) A retrieval
+curriculum that keeps every answer out of the attention window, the standard
+guard against leakage, trained the model out of in-context copying (31.8\% to
+3\% first-token accuracy with the fact in context), silently confounding four
+rounds of memory-architecture experiments. (2) Every newly added memory module
+we tried (a TTT/Titans-style fast-weight matrix, a Nested-Learning continuum
+memory, per-token write strength, an uncompressed slot memory) failed at
+\emph{addressing} rather than storage; reusing the backbone's own attention
+through a Transformer-XL cache raised one-window-back recall from 4.3\% to
+94.1\%. (3) Voted dreams consolidate at 81\% of the ground-truth control and
+preserve old knowledge under later learning. The full loop clears its
+pre-registered bars, but only at the margin; the bottleneck is the accuracy of
+dreams read from the cache at realistic fact density. All thresholds were set
+before each run, and every probe is reported against the model's own
+in-context ceiling.
+\end{abstract}
+
+\section{Introduction}
+A deployed language model that learns something new must either keep it in
+context, which is bounded, or change its weights, which interferes with what it
+already knows. Complementary learning systems theory
+\citep{mcclelland1995cls} describes how brains split the problem: the
+hippocampus records episodes quickly, and sleep replays them into slow
+cortical memory. Recent architectures import the fast half of that story as
+test-time learning \citep{sun2024ttt,behrouz2025titans,behrouz2025nested}.
+The slow half, and the loop between them, is less explored in language models.
+
+We build the whole loop at small scale and measure each stage separately before
+measuring it end to end. Our model, \emph{accretion}, has three tiers:
+\begin{itemize}
+\item a \textbf{fast tier} that holds what the model read today without any
+gradient step;
+\item \textbf{lifetime tables}, sparse hashed embeddings injected into the
+residual stream and written only during sleep;
+\item a \textbf{sleep job} that writes the tables from the model's own
+\emph{dreams}, rehearses older knowledge by re-dreaming it, and is guarded by
+an external gate with rollback.
+\end{itemize}
+
+The paper's contributions are as much about measurement as about the system.
+Two of our intermediate conclusions were wrong for the same reason: a pass bar
+was set without first measuring what the unassisted backbone could do with the
+answer in plain view (Section~\ref{sec:calibration}). We report those errors,
+because the failure mode they expose is general.
+
+\section{System}
+\subsection{Backbone}
+A 24-block decoder, $d=640$, GPT-2 tokenizer, trained on FineWeb-10B
+\citep{penedo2024fineweb}. Eighteen blocks are Gated DeltaNet
+\citep{yang2025gdn}; every fourth block is grouped-query attention with QK-norm
+and no positional encoding. An ablation queue at 2B tokens selected this hybrid
+over dense attention (val 3.259 vs 3.286) and rejected multi-token prediction
+and a content-blind Engram-style table. Optimizer: Muon for matrices, AdamW
+elsewhere, warmup-stable-decay schedule.
+
+\subsection{Fast tier}
+We tested five fast tiers, each trained jointly with the backbone on a
+retrieval curriculum (Section~\ref{sec:curriculum}):
+a TTT-Linear fast-weight matrix with learned initial state and momentum
+\citep{sun2024ttt,behrouz2025titans}, gated into block 12 (MAG);
+a three-level continuum memory system at update periods 32/128/512 tokens
+\citep{behrouz2025nested};
+backpropagation through two consecutive windows plus an InfoNCE readback loss;
+per-token write strength; and an uncompressed slot memory that stores every
+token's key and value and reads them by multi-head attention.
+The tier that works is the simplest: a Transformer-XL cache
+\citep{dai2019transformerxl}. Each attention block also attends to the previous
+512-token window's keys and values, placed before the current window; a
+learned per-head bias on cached logits marks them as past
+(Section~\ref{sec:results-fast}).
+
+\subsection{Lifetime tables and sleep}
+Lifetime memory is a pair of hashed $n$-gram tables injected after blocks 2 and
+12. A sleep cycle trains only the tables (AdamW, 12k steps) on restructured
+documents about the day's facts. Two safeguards come from earlier failures.
+\emph{Replay}: 30\% of each batch rehearses previously committed facts.
+\emph{Gate}: a write is committed only if held-out val loss stays within
+$+0.05$ of the original baseline (not of the previous cycle, which let small
+drifts compound to $+0.09$) and previously committed facts keep at least half
+of their recall; otherwise the pre-sleep snapshot is restored. The model never
+certifies its own edit.
+
+\subsection{Dreaming}
+\label{sec:dreaming}
+In the ground-truth version of sleep the training documents contain the true
+answers. In the dreaming version they never do. For each fact the registry holds
+only a cue index (subject and relation). Each of seven restructured phrasings
+is cut just before the answer, producing a cue such as
+\texttt{Q: Who founded Quonsirn?\textbackslash nA:}; the object is replaced by
+a sentinel before templating, so it cannot leak (tested). The model completes
+each cue greedily. The day's facts are dreamed with the day's memory available;
+older facts are re-dreamed from the current weights alone. With
+\emph{consensus}, the seven dreams vote on the answer and every cue is
+completed with the winner, which also strips invented detail. Wrong dreams are
+consolidated anyway and counted as false memories.
+
+\section{Benchmarks and calibration}
+\label{sec:calibration}
+\subsection{Cross-window recall}
+\label{sec:curriculum}
+A quarter of training lanes carry a synthetic stream: novel facts with random
+two-syllable names (``the mayor of Blafro is Kresut''), filler sentences, and
+probes asking for a fact one or more windows after its last mention. An
+anti-leak invariant guarantees that no probe shares a window with any mention
+of its fact. The metric is first-token accuracy on the answer, with memory
+carried across windows minus the same checkpoint with memory reset each window,
+bucketed by the probe's age in windows.
+
+\subsection{The ceiling we did not measure}
+We later measured the same probes with the statement placed back in context
+and memory off (Table~\ref{tab:ceiling}). Before curriculum training the
+backbone copies a novel name from a nearby sentence 31.8\% of the time, falling
+to chance by 256 tokens. After curriculum training it does not copy at all:
+3.0\%, equal to the no-fact floor. Because the anti-leak rule kept every answer
+out of attention, and the untrained memory supplied nothing, the best policy
+the model could learn was to guess a plausible name. Every memory arm trained
+on that curriculum was feeding an answer path the curriculum had switched off.
+Re-asking 15\% of facts inside their own window (``near'' probes, logged
+separately and excluded from scoring) restored the circuit to 95\% and extended
+it to 89\% at 450 tokens.
+
+\begin{table}[t]\centering\small
+\caption{First-token accuracy, fact in context, memory off, by distance in tokens
+between statement and question (403 probes).}\label{tab:ceiling}
+\begin{tabular}{lrrrrrrrr}\toprule
+checkpoint & 0 & 16 & 32 & 64 & 128 & 256 & $\sim$450 & no fact\\\midrule
+base (no curriculum) & 31.8 & 26.1 & 22.3 & 12.9 & 7.9 & 2.7 & 2.7 & 2.5\\
+old curriculum & 3.0 & & & & & & 4.2 & 5.0\\
+with near probes & 95.0 & 95.5 & 95.5 & 95.5 & 95.0 & 94.8 & 89.1 & 6.7\\\bottomrule
+\end{tabular}\end{table}
+
+\subsection{Lifetime benchmark}
+Three disjoint corpora of 60 facts each are consolidated in sequence; after
+every cycle every earlier corpus is re-probed with a light paraphrase whose
+in-context ceiling is 100\%. Answers come from a list of 10 names, so random
+guessing scores 10\%. Gate-off runs are mandatory: a gate that rolls everything
+back forgets nothing and learns nothing.
+
+\section{Results}
+\subsection{The fast tier fails at addressing}
+\label{sec:results-fast}
+Table~\ref{tab:fast} lists every fast-tier round. Rounds 0 to 2 are confounded
+by the curriculum. Round 3 is the first fair test of the fast-weight matrix:
++3.5pp. A diagnostic that ranks the stated fact's tokens among all keys of the
+previous window shows why: the query at the question finds the fact only
+diffusely (median best rank 18 of 512) and the read returns a blend.
+
+Round 4 removed compression entirely. The slot memory's gate opened fully (1.00)
+and its output projection's norm grew about 300-fold, so the model used
+the branch heavily, but not for facts: attention mass on the fact's tokens was
+3.9\% against 2.7\% chance. A freshly initialized memory must learn retrieval
+from sparse probe gradients and instead learned to inject generic context. The
+backbone's own attention already solves the task at 89 to 95\% in context.
+Round 5 reuses it, and recall one window back rises to 94.1\% against 4.3\%
+without the cache. Ages 2 and beyond stay at zero, as expected for a one-window
+cache.
+
+The cache has a cost. With the cache carried, FineWeb val is 3.498 against
+3.342 for the round-3 model; the gap persists under every evaluation protocol.
+Our hypothesis is that NoPE attention infers order from the causal mask, which
+an always-visible cache breaks. Round 6 adds a learned bias on cached logits
+\todo{round 6 result: val, currprobe}.
+
+\begin{table}[t]\centering\small
+\caption{Fast-tier rounds. Memory gain = first-token accuracy on facts stated one
+window (512 tokens) earlier, memory carried minus reset, same checkpoint
+(423 probes; SE of a difference $\approx$2.3pp). Pre-registered pass: $\geq$+10pp.}
+\label{tab:fast}
+\begin{tabular}{llrl}\toprule
+round & fast tier & gain & note\\\midrule
+0 & TTT-Linear matrix & +1.4 & \\
+1 & 3-level CMS & $-$0.2 & slow levels pruned; val 3.94\\
+1 & matrix + 2-window BPTT + readback & $-$0.9 & readback 1.01 vs chance 4.16\\
+2 & + per-token write strength & $-$1.7 & \\\midrule
+\multicolumn{4}{l}{\emph{curriculum fixed: in-context copying restored}}\\
+3 & per-token matrix & +3.5 & read rank 18/512\\
+4 & slot memory (no compression) & +1.2 & gate 1.00; fact mass 3.9\% vs 2.7\%\\
+5 & Transformer-XL cache & \textbf{+89.8} & 94.1\% vs 4.3\%; val +0.16\\
+6 & XL + cache bias + denser, wrapped curriculum & \todo{} & \\\bottomrule
+\end{tabular}\end{table}
+
+\subsection{Sleep, replay and interference}
+On the earlier memory-native checkpoint, consolidation without replay erased
+corpus A almost entirely after two later cycles (kept 12.5\% homogeneous, 0\%
+on varied domains). With 30\% replay, corpus A kept 77.8\% and 76.5\%, and total
+retained knowledge rose 2$\times$ and 6 to 8$\times$. A 2$\times$2 places the
+interference in shared projection capacity rather than bucket collision: varied
+corpora with 1.3\% bucket overlap still forgot completely, while homogeneous
+corpora with 56\% overlap retained more; freezing the shared projections
+delayed collapse by one cycle and crippled new learning. Replay works because
+it keeps old facts in the gradient that shapes the shared projections.
+
+A caution on the gate: the $+0.05$ drift budget sits at run-to-run noise. The
+same ground-truth configuration committed its first cycle at $+0.045$ in one run
+and rolled it back at $+0.051$ in another (the tables are randomly
+initialized). We therefore report gate-off runs as the primary measurement.
+
+\subsection{Dreaming}
+Table~\ref{tab:dream} compares sleep on the true answers with sleep on the
+model's own dreams. Raw dreams preserve old knowledge nearly as well as the
+truth (corpus A keeps 75\%) but consolidate only 49\% as many facts and drift
+past the budget. The dreams look like dreams: the core fact is usually right,
+details are invented and inconsistent (``founded by Nimbleton in 1855'', then
+``in 1844''), and some are false (``the capital of Lutvay is Lutvay'').
+Consensus voting fixes both failures: 81\% of the control's retained facts and
+drift within budget. Re-dreamed old facts are only as accurate as current
+recall, so mis-remembered facts are rehearsed as faithfully as correct ones.
+
+\begin{table}[t]\centering\small
+\caption{Sleep on ground truth vs on dreams (memory-native checkpoint, day held
+in context, gate off, 3$\times$60 facts, 30\% replay).}\label{tab:dream}
+\begin{tabular}{lrrr}\toprule
+& truth & raw dreams & voted dreams\\\midrule
+facts retained of 180 & $\sim$98 & $\sim$48 & $\sim$79\\
+corpus A kept after 2 more cycles & 81\% & 75\% & 58\%\\
+val drift (budget +0.05) & +0.041 & +0.058 & +0.043\\
+day dream accuracy & -- & 56--67\% & 77--100\%\\\bottomrule
+\end{tabular}\end{table}
+
+\subsection{The full loop}
+On the round-5 model, 60 facts are packed whole into six 512-token windows with
+filler and streamed through the model with the cache carried. Each fact is
+dreamed from the cache state right after its window, with its text no longer in
+context. Voted dreams train the tables; recall is probed on the following days
+with the cache empty (Table~\ref{tab:loop}).
+
+\begin{table}[t]\centering\small
+\caption{Full loop on the round-5 model, gate off. Recall is with the fast tier
+empty.}\label{tab:loop}
+\begin{tabular}{lrrr}\toprule
+& truth & dreams, day in context & dreams, day in cache\\\midrule
+recall with no sleep & 0--3\% & 0--3\% & 0--3\%\\
+corpus A after its sleep & 58.3\% & 43.3\% & 10.0\%\\
+corpus A after 2 more days & 58.3\% & 18.3\% & 5.0\%\\
+facts retained of 180 & $\sim$101 & $\sim$68 & $\sim$24\\
+day dream accuracy & -- & 80--98\% & 15--35\%\\
+val drift & +0.010 & +0.018 & +0.018\\\bottomrule
+\end{tabular}\end{table}
+
+The loop clears its pre-registered bars (learning $\geq$+10pp over no sleep;
+corpus A keeps $\geq$50\%; drift $\leq$+0.05), but at the threshold: six facts
+learned, three kept. Every stage behaves as measured in isolation. Sleep turns
+between half and two thirds of correct dreams into lasting recall in every
+arm (10/15, 22/35, 20/29 from the cache; 43/80 with the day in context), so the bottleneck is the first
+stage. Dream accuracy from the cache falls with fact density (voted: 70, 55,
+47, 33, 27\% at 1, 2, 3, 5 and $\sim$10 facts per window), and even one fact per
+window reaches only 70\% on framings the model never trained on.
+\todo{round 6 full-loop result}
+
+\section{Related work}
+\textbf{Test-time memory.} TTT layers \citep{sun2024ttt} and Titans
+\citep{behrouz2025titans} learn a fast-weight memory during the forward pass;
+Nested Learning and Hope \citep{behrouz2025nested} add memories at several
+update frequencies. Gated DeltaNet \citep{yang2025gdn} uses a delta-rule
+state with per-token gates. Our negative results for these mechanisms are
+specific to a 134M model, a sparse retrieval signal and cross-document state;
+they say the bottleneck was learning to address, not capacity.
+\textbf{Retrieval over cached states.} Transformer-XL \citep{dai2019transformerxl}
+and Memorizing Transformers \citep{wu2022memorizing} attend to cached keys and
+values; MemoryLLM and M+ \citep{wang2024memoryllm,wang2025mplus} maintain a
+self-updated latent memory pool in an 8B model.
+\textbf{Consolidation and replay.} Complementary learning systems
+\citep{mcclelland1995cls}; pseudo-rehearsal \citep{robins1995pseudo};
+generative replay \citep{shin2017generative}; sleep-like replay in networks
+\citep{tadros2022sleep}. SEAL \citep{zweiger2025seal} has a model write its
+own finetuning data. Self-consistency \citep{wang2023selfconsistency} is our
+voting rule.
+
+\section{Limitations}
+One seed per arm; several effects sit within one to two standard errors.
+Corpora of 60 facts make each corpus-level percentage a handful of facts. The
+answer vocabulary has ten names. The facts are synthetic and the paraphrase
+probes are light. The fast tier is a bounded cache, so facts older than one
+window rely on sleep. The XL model is worse at ordinary language modeling than
+the matrix-memory model. Scale is 134M parameters and 393M tokens per round;
+paraphrase-invariant retrieval at this size is capacity-limited (30\% in-context
+ceiling on our hardest probe level). Lifetime tables are trained by
+gradient descent; one-shot writes into the fast-weight memory across documents
+failed (0\%).
+
+\section{Conclusion}
+A small model can learn by day and consolidate by night with no ground truth
+after the day itself: it dreams about what it read, votes on its dreams, sleeps
+on them, and keeps the result. Today it does so weakly, and we know which stage
+to fix. The two lessons we would pass on are methodological. Measure the
+backbone's own ceiling on every probe before setting a bar. And when a new
+memory module stores information but does not use it, check whether the model
+already has a retrieval circuit you could hand the memory to.
+
+\bibliographystyle{plainnat}
+\bibliography{references}
+\end{document}
