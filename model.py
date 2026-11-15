@@ -42,6 +42,7 @@ class Config:
     readback: float = 0.0  # weight of the InfoNCE readback aux loss (bptt levels only)
     mem: str = "ttt"  # "slots" = accretion/slots.py (stored k/v read by attention)
     slot_size: int = 4096  # slots FIFO capacity in tokens (8 windows of 512)
+    xl_size: int = 512  # mem="xl": cached tokens of K/V per attention layer
     seq_len: int = 2048
 
     @property
@@ -56,9 +57,9 @@ def rope_freqs(cfg: Config, device):
     return torch.cos(freqs), torch.sin(freqs)
 
 
-def apply_rope(x, cos, sin):  # x: (B, h, T, d_head)
+def apply_rope(x, cos, sin, start=0):  # x: (B, h, T, d_head)
     T = x.size(2)
-    c, s = cos[:T], sin[:T]
+    c, s = cos[start:start + T], sin[start:start + T]
     x1, x2 = x.chunk(2, dim=-1)
     return torch.cat([x1 * c - x2 * s, x1 * s + x2 * c], dim=-1)
 
@@ -85,6 +86,9 @@ class Attention(nn.Module):
         v = self.wv(x).view(B, T, cfg.n_kv_head, cfg.d_head).transpose(1, 2)
         if cfg.qk_norm:
             q, k = F.rms_norm(q, (cfg.d_head,)), F.rms_norm(k, (cfg.d_head,))
+        xl = getattr(self, "xl", None)
+        if xl is not None:  # Transformer-XL: previous windows' K/V, before this one
+            return self.wo(xl.attend(self, q, k, v, cos, sin).transpose(1, 2).reshape(B, T, -1))
         if self.use_rope:
             q, k = apply_rope(q, cos, sin), apply_rope(k, cos, sin)
         if not cfg.attn_sink:
@@ -158,12 +162,19 @@ class Protostar(nn.Module):
 
             from accretion.slots import SlotMemory
 
-            if cfg.mem == "slots":  # bptt on: the trainer's detach_() sets the horizon
+            if cfg.mem == "xl":  # memory lives inside the attention layers
+                from accretion.xl import XLCache
+                self.fast = XLCache(cfg.xl_size)
+                for blk in self.blocks:
+                    if not blk.is_gdn:
+                        object.__setattr__(blk.mix, "xl", self.fast)  # plain ref, not a submodule
+            elif cfg.mem == "slots":  # bptt on: the trainer's detach_() sets the horizon
                 self.fast = SlotMemory(cfg.d, cfg.n_head, cfg.slot_size, bptt=True)
             elif cfg.cms:
                 self.fast = MemoryStack(cfg.d, cfg.cms, cfg.readback, cfg.per_token)
             else:
                 self.fast = FastMemory(cfg.d, hidden=cfg.fast_hidden, chunk=cfg.fast_chunk)
+        if cfg.fast_memory and cfg.mem != "xl":
             # MAG: memory is a GATED PARALLEL BRANCH, not an in-line residual add.
             # Titans measured MAG > MAL; v1 accidentally used MAL-shaped injection.
             self.fast_gate = nn.Linear(cfg.d, 1)
@@ -206,9 +217,11 @@ class Protostar(nn.Module):
 
     def forward(self, idx, targets=None):
         h = self.embed(idx)
+        if self.cfg.fast_memory and self.cfg.mem == "xl" and not getattr(self, "persist_memory", False):
+            self.fast.reset(h.size(0), h.device, h.dtype)
         for i, blk in enumerate(self.blocks):
             h = blk(h, self.cos, self.sin)
-            if self.cfg.fast_memory and i == self.cfg.fast_layer:
+            if self.cfg.fast_memory and self.cfg.mem != "xl" and i == self.cfg.fast_layer:
                 # each forward() is an independent training sequence — the
                 # inner state must not leak across unrelated batches. Only
                 # a stateful CALLER (accretion inference) should carry it on,
@@ -225,6 +238,8 @@ class Protostar(nn.Module):
                 mem = torch.cat([self.tables[0]((prev * 1000003 + idx) % (1 << 18)),
                                  self.tables[1]((prev * 31 + idx * 999983) % (1 << 18))], -1)
                 h = h + torch.sigmoid(self.gate(h)) * self.mem_proj(mem)
+        if self.cfg.fast_memory and self.cfg.mem == "xl":
+            self.fast.end_window()
         h = self.norm_f(h)
         if targets is None:
             return self.lm_head(h), None

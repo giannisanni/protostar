@@ -52,6 +52,8 @@ def seed_cms(sd, target):
     are initialised from the faster level's meta-learned weights), then
     diverges by update period. Keys the checkpoint lacks (aggregation
     weights) keep their init. No-op for matching architectures."""
+    if not any(k.startswith("fast") for k in target):  # xl: memory has no weights
+        return {k: v for k, v in sd.items() if not k.startswith("fast")}
     if "fast.null_k" in target and "fast.null_k" not in sd:  # new memory type: fresh init
         return {**{k: v for k, v in sd.items() if not k.startswith("fast.")},
                 **{k: v for k, v in target.items() if k.startswith("fast.")}}
@@ -244,7 +246,7 @@ def train(cfg: Config, t: TrainConfig) -> float:
             # gate to stdout only (not the CSV — report.py parses that): a gate
             # collapsing to ~0 means the model learned to IGNORE old memory,
             # which is this experiment's silent-failure mode
-            extra = f" gate={raw.last_gate:.3f}" if cfg.fast_memory else ""
+            extra = f" gate={getattr(raw, 'last_gate', 0.0):.3f}" if cfg.fast_memory else ""
             if cfg.cms:
                 extra += " w=" + ",".join(f"{x:.3f}" for x in raw.fast.w.tolist())
             if cfg.readback:
