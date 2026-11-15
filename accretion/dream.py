@@ -36,14 +36,28 @@ def _cut(text):
     return text.strip()
 
 
-def dreams(gen, facts, restructure_fn, n=7):
+def _first_word(ans):
+    w = ans.split()
+    return w[0].strip(",;:!?\"'") if w else ""
+
+
+def dreams(gen, facts, restructure_fn, n=7, consensus=False):
     """One dream per cue. gen(prompt) -> continuation. Returns
-    ([docs], stats); docs are cue + dreamed answer, one per fact."""
+    ([docs], stats); docs are cue + dreamed answer, one per fact.
+    consensus: the fact's n dreams vote (first word of each answer) and every
+    cue is completed with the winner alone, so one odd dream is outvoted
+    and invented details ("in 1855") are dropped. Still no ground truth."""
+    from collections import Counter
     docs, right, total = [], 0, 0
     for f in facts:
+        cs = cues(f, restructure_fn, n)
+        answers = [_cut(gen(f, c)) for c in cs]
+        if consensus:
+            votes = Counter(w for w in map(_first_word, answers) if w)
+            win = votes.most_common(1)[0][0] if votes else ""
+            answers = [win] * len(cs)
         lines = []
-        for c in cues(f, restructure_fn, n):
-            ans = _cut(gen(f, c))
+        for c, ans in zip(cs, answers):
             lines.append(f"{c} {ans}." if ans else c)
             right += _norm(f["object"]) in _norm(ans)  # scoring only; never fed back
             total += 1

@@ -27,3 +27,16 @@ def test_corpus_is_only_what_was_dreamed():
 
     docs, st = dreams(lambda f, p: " " + f["object"] + ".", facts, restructure)
     assert st["dream_acc"] == 1.0 and all(f["object"] in d for f, d in zip(facts, docs))
+
+
+def test_consensus_outvotes_odd_dreams_and_drops_details():
+    facts = make_facts(3, seed=5)
+    calls = {}
+
+    def gen(f, prompt):
+        calls[f["subject"]] = calls.get(f["subject"], 0) + 1
+        return " Belloran in 1855." if calls[f["subject"]] % 3 else " Duskrow."
+
+    docs, _ = dreams(gen, facts, restructure, consensus=True)
+    for d in docs:
+        assert "Duskrow" not in d and "1855" not in d and d.count("Belloran.") >= 5

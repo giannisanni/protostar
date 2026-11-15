@@ -61,6 +61,8 @@ def main():
     ap.add_argument("--dream", action="store_true",
                     help="sleep trains on the model's own dreams: day = one-shot "
                          "fast-memory write, night = cue completions (accretion/dream.py)")
+    ap.add_argument("--consensus", action="store_true",
+                    help="with --dream: each fact's dreams vote; cues are completed with the winner")
     ap.add_argument("--freeze-after", type=int, default=0,
                     help="after cycle N, write ONLY sparse slots "
                          "(shared projections frozen). 0 = never")
@@ -78,7 +80,7 @@ def main():
     for p in model.parameters():
         p.requires_grad_(False)
 
-    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "") + ("_adaptive" if a.adaptive_replay else "") + ("_dream" if a.dream else "")
+    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "") + ("_adaptive" if a.adaptive_replay else "") + ("_dream" if a.dream else "") + ("_consensus" if a.consensus else "")
     out = Path(a.out) / tag
     out.mkdir(parents=True, exist_ok=True)
     registry = KnowledgeRegistry(out / "registry.jsonl")
@@ -121,7 +123,7 @@ def main():
             from accretion.dream import make_gen
             day = {f["subject"]: f["doc"] for f in corpus}  # episodic buffer
             dream = (make_gen(model, sub, enc, a.device, ctx=day),
-                     make_gen(model, sub, enc, a.device))
+                     make_gen(model, sub, enc, a.device), a.consensus)
         consolidate(model, sub, corpus, registry, val_loss_fn, probe_fn, enc,
                     a.device, cycle=i, steps=a.steps, lr=a.lr,
                     gate=not a.no_gate, bucket_only=bucket_only,
