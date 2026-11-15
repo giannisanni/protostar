@@ -40,6 +40,8 @@ class Config:
     cms: list = None  # [[chunk, base_decay, bptt], ...] fastest first; None = single FastMemory
     per_token: bool = False  # per-token write strength in the fast memory (cms stack only)
     readback: float = 0.0  # weight of the InfoNCE readback aux loss (bptt levels only)
+    mem: str = "ttt"  # "slots" = accretion/slots.py (stored k/v read by attention)
+    slot_size: int = 4096  # slots FIFO capacity in tokens (8 windows of 512)
     seq_len: int = 2048
 
     @property
@@ -154,8 +156,14 @@ class Protostar(nn.Module):
         if cfg.fast_memory:
             from accretion.fast import FastMemory, MemoryStack
 
-            self.fast = (MemoryStack(cfg.d, cfg.cms, cfg.readback, cfg.per_token) if cfg.cms else
-                         FastMemory(cfg.d, hidden=cfg.fast_hidden, chunk=cfg.fast_chunk))
+            from accretion.slots import SlotMemory
+
+            if cfg.mem == "slots":  # bptt on: the trainer's detach_() sets the horizon
+                self.fast = SlotMemory(cfg.d, cfg.n_head, cfg.slot_size, bptt=True)
+            elif cfg.cms:
+                self.fast = MemoryStack(cfg.d, cfg.cms, cfg.readback, cfg.per_token)
+            else:
+                self.fast = FastMemory(cfg.d, hidden=cfg.fast_hidden, chunk=cfg.fast_chunk)
             # MAG: memory is a GATED PARALLEL BRANCH, not an in-line residual add.
             # Titans measured MAG > MAL; v1 accidentally used MAL-shaped injection.
             self.fast_gate = nn.Linear(cfg.d, 1)

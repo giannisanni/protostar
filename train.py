@@ -52,6 +52,9 @@ def seed_cms(sd, target):
     are initialised from the faster level's meta-learned weights), then
     diverges by update period. Keys the checkpoint lacks (aggregation
     weights) keep their init. No-op for matching architectures."""
+    if "fast.null_k" in target and "fast.null_k" not in sd:  # new memory type: fresh init
+        return {**{k: v for k, v in sd.items() if not k.startswith("fast.")},
+                **{k: v for k, v in target.items() if k.startswith("fast.")}}
     if not any(k.startswith("fast.levels.") for k in target) or \
             any(k.startswith("fast.levels.") for k in sd):
         return sd
