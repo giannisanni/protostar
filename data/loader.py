@@ -104,13 +104,13 @@ class CurriculumShards(StatefulShards):
     they are synthetic, so nothing is lost."""
 
     def __init__(self, dirpath, split, batch, seq_len, rank=0, world=1,
-                 cur_every=4, reset_prob=0.0625, seed=1337, near=0.0):
+                 cur_every=4, reset_prob=0.0625, seed=1337, near=0.0, density=0.15, wrap=0.0):
         super().__init__(dirpath, split, batch, seq_len, rank=rank, world=world)
         import tiktoken
 
         from accretion.curriculum import FactStream
         enc = tiktoken.get_encoding("gpt2")
-        self.streams = {b: FactStream(enc, seq_len, seed + rank * batch + b, near)
+        self.streams = {b: FactStream(enc, seq_len, seed + rank * batch + b, near, density, wrap)
                         for b in range(batch) if (rank * batch + b) % cur_every == 0}
         self.reset_prob = reset_prob
 

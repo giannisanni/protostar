@@ -40,6 +40,8 @@ class TrainConfig:
     #                  make docs span windows, so memory is the ONLY channel
     #                  to earlier context — that is what rewards reading it
     reset_prob: float = 0.0625  # per-lane reset chance per window (mean age 1/p)
+    cur_density: float = 0.15  # share of curriculum emissions stating a new fact
+    cur_wrap: float = 0.0  # share of statements in document-style framings
     cur_near: float = 0.0  # share of curriculum emissions that re-ask an in-context fact
     cur_every: int = 0  # 0=off; N = every Nth global lane is a retrieval-curriculum stream
     init_from: str = ""  # load model WEIGHTS only: fresh optimizer/loader/step
@@ -53,7 +55,8 @@ def seed_cms(sd, target):
     diverges by update period. Keys the checkpoint lacks (aggregation
     weights) keep their init. No-op for matching architectures."""
     if not any(k.startswith("fast") for k in target):  # xl: memory has no weights
-        return {k: v for k, v in sd.items() if not k.startswith("fast")}
+        out = {k: v for k, v in sd.items() if not k.startswith("fast")}
+        return {**out, **{k: v for k, v in target.items() if "xl_bias" in k and k not in out}}
     if "fast.null_k" in target and "fast.null_k" not in sd:  # new memory type: fresh init
         return {**{k: v for k, v in sd.items() if not k.startswith("fast.")},
                 **{k: v for k, v in target.items() if k.startswith("fast.")}}
@@ -148,7 +151,8 @@ def train(cfg: Config, t: TrainConfig) -> float:
     if t.stateful and t.cur_every:
         loader = CurriculumShards(t.data_dir, "train", t.batch, t.window or cfg.seq_len,
                                   rank=rank, world=world, cur_every=t.cur_every,
-                                  reset_prob=t.reset_prob, seed=t.seed, near=t.cur_near)
+                                  reset_prob=t.reset_prob, seed=t.seed, near=t.cur_near,
+                                  density=t.cur_density, wrap=t.cur_wrap)
     else:
         Loader = StatefulShards if t.stateful else Shards
         loader = Loader(t.data_dir, "train", t.batch, t.window or cfg.seq_len,

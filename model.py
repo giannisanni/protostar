@@ -43,6 +43,7 @@ class Config:
     mem: str = "ttt"  # "slots" = accretion/slots.py (stored k/v read by attention)
     slot_size: int = 4096  # slots FIFO capacity in tokens (8 windows of 512)
     xl_size: int = 512  # mem="xl": cached tokens of K/V per attention layer
+    xl_bias: bool = False  # learned per-kv-head logit bias on cached keys (NoPE: marks "the past")
     seq_len: int = 2048
 
     @property
@@ -74,6 +75,8 @@ class Attention(nn.Module):
         self.wv = nn.Linear(d, nkv * dh, bias=False)
         self.wo = nn.Linear(nh * dh, d, bias=False)
         nn.init.zeros_(self.wo.weight)  # zero-init out proj (speedrun stability)
+        if cfg.mem == "xl" and cfg.xl_bias:  # zero-init: identical to no bias at step 0
+            self.xl_bias = nn.Parameter(torch.zeros(nkv))
         if cfg.attn_sink:
             self.sink_k = nn.Parameter(torch.randn(nkv, 1, dh) * 0.02)
             self.sink_v = nn.Parameter(torch.zeros(nkv, 1, dh))

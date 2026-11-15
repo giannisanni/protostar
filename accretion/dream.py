@@ -119,12 +119,13 @@ _FILLER = ["The weather held steady through the afternoon.",
 
 
 @torch.no_grad()
-def live_day_stream(model, sub, facts, enc, device, window=512, seed=0):
+def live_day_stream(model, sub, facts, enc, device, window=512, seed=0, per_window=None):
     """The literal day: every fact's doc is packed, whole, into consecutive
     `window`-token windows between filler sentences and streamed through
     the model with the fast memory carried (XL cache). The memory state
     right after a fact's window is that fact's day memory, so its dream is
     a cue in the NEXT window reading the cache: no fact text in context.
+    per_window caps facts per window (the rest is filler); None = pack.
     Returns (mems, n_windows)."""
     import random
     rng = random.Random(seed)
@@ -133,7 +134,7 @@ def live_day_stream(model, sub, facts, enc, device, window=512, seed=0):
     windows, cur, members = [], [], []
     for f in order:
         doc = enc.encode(" " + f["doc"])
-        while len(cur) + len(doc) > window:  # close this window with filler
+        while len(cur) + len(doc) > window or (per_window and len(members) >= per_window):  # close this window with filler
             pad = enc.encode(" " + rng.choice(_FILLER))
             if len(cur) + len(pad) > window:
                 windows.append((cur + enc.encode(" .") * (window - len(cur)), members))

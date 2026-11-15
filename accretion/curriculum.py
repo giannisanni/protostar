@@ -39,6 +39,14 @@ _FILLER_T = ["The {a} {n} passed without incident.",
              "Nothing changed during the {a} {n}."]
 
 
+# document-style framings; deliberately NOT facts.py's wording (that is eval)
+_WRAPS = ["Notes on {s}. Records show that {sent}. Historians of {s} agree on this.",
+          "About {s}: {sent}.",
+          "Entry for {s}\n- {sent}",
+          "Reference card. {sent}. End of card.",
+          "Ask anyone from {s} and they will tell you that {sent}."]
+
+
 def _name(rng):
     return (rng.choice(SYL) + rng.choice(SYL)).capitalize()
 
@@ -89,13 +97,20 @@ class FactStream:
     the model is never graded on facts its memory cannot contain.
     """
 
-    def __init__(self, enc, window, seed, near=0.0):
+    def __init__(self, enc, window, seed, near=0.0, density=0.15, wrap=0.0):
         self.enc, self.w = enc, window + 1  # loader windows are seq_len+1 tokens
         # near: share of emissions that re-ask a fact still IN attention range
         # (logged "near", not "probe"). Without it the only reward for a fact
         # answer is the name prior, and training erased in-context copying
         # (measured 2026-11-14: P(answer) 13.8% -> 0.0% after the curriculum).
         self.near = near
+        # density: share of emissions that state a NEW fact (0.15 = ~7 per
+        # window). wrap: share of statements framed in a document-style
+        # wrapper, so the cache read is trained on more than one surface form
+        # (2026-11-15: 70% -> 27% dream accuracy from 1 to ~10 facts/window,
+        # and only 70% even at 1/window on unseen framings). Defaults keep
+        # the stream bit-identical.
+        self.density, self.wrap = density, wrap
         self.rng = random.Random(seed)
         self.buf, self.pos, self._n = [], 0, 0
         self.log = []  # (kind, fact_id, start_tok, end_tok) — for tests
@@ -132,9 +147,13 @@ class FactStream:
             f.update(end=cur + len(toks), last=cur)
             self.log.append(("probe", f["id"], cur, f["end"]))
             return toks
-        if r < 0.5 and len(self.used) < 300:  # hard cap: never exhaust the namespace
+        if r < 0.35 + self.density and len(self.used) < 300:  # hard cap: never exhaust the namespace
             f = _fact(self.rng, self.used)
-            toks = self.enc.encode(" " + statement(f))
+            text = statement(f)
+            if self.wrap and self.rng.random() < self.wrap:
+                text = self.rng.choice(_WRAPS).format(s=f["subject"], sent=RELS[f["rel"]][0].format(
+                    s=f["subject"], o=f["object"]))
+            toks = self.enc.encode(" " + text)
             f.update(end=cur + len(toks), last=cur, probes=self.rng.randint(2, 4), id=self._n)
             self._n += 1
             self.pool.append(f)

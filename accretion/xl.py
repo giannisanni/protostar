@@ -51,10 +51,18 @@ class XLCache(nn.Module):
         if attn.use_rope:
             q, K = apply_rope(q, cos, sin, start=M), apply_rope(K, cos, sin)
         ok = self.ok if self.ok is not None and M else torch.ones(B, M, dtype=torch.bool, device=q.device)
+        scale = q.size(-1) ** -0.5
+        if getattr(attn, "xl_bias", None) is not None and M:
+            # add bias_h to every cached logit without a float mask: append one
+            # dim, q gets 1, cached keys get bias/scale, current keys get 0
+            b = (attn.xl_bias.to(K.dtype) / scale).view(1, -1, 1, 1)
+            extra = torch.cat([b.expand(B, -1, M, 1), torch.zeros_like(K[..., :1])[:, :, M:]], 2)
+            K = torch.cat([K, extra], -1)
+            q = torch.cat([q, torch.ones_like(q[..., :1])], -1)
         causal = torch.ones(T, T, dtype=torch.bool, device=q.device).tril_()
         mask = torch.cat([ok.view(B, 1, 1, M).expand(B, 1, T, M),
                           causal.view(1, 1, T, T).expand(B, 1, T, T)], -1)
-        out = F.scaled_dot_product_attention(q, K, V, attn_mask=mask, enable_gqa=True)
+        out = F.scaled_dot_product_attention(q, K, V, attn_mask=mask, enable_gqa=True, scale=scale)
         self.kv[id(attn)] = (torch.cat([kc.to(k.dtype), k], 2)[:, :, -self.size:],
                              torch.cat([vc.to(v.dtype), v], 2)[:, :, -self.size:])
         # the mask advances once per window: the last layer to write commits it
