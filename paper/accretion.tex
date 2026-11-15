@@ -87,7 +87,7 @@ backpropagation through two consecutive windows plus an InfoNCE readback loss;
 per-token write strength; and an uncompressed slot memory that stores every
 token's key and value and reads them by multi-head attention.
 The tier that works is the simplest: a Transformer-XL cache
-\citep{dai2019transformerxl}. Each attention block also attends to the previous
+\citep{dai2019transformerxl} (no new parameters beyond one bias per key-value head). Each attention block also attends to the previous
 512-token window's keys and values, placed before the current window; a
 learned per-head bias on cached logits marks them as past
 (Section~\ref{sec:results-fast}).
@@ -133,7 +133,7 @@ bucketed by the probe's age in windows.
 We later measured the same probes with the statement placed back in context
 and memory off (Table~\ref{tab:ceiling}). Before curriculum training the
 backbone copies a novel name from a nearby sentence 31.8\% of the time, falling
-to chance by 256 tokens. After curriculum training it does not copy at all:
+to chance by 256 tokens (2.7\%, against 2.5\% with no fact in context). After curriculum training it does not copy at all:
 3.0\%, equal to the no-fact floor. Because the anti-leak rule kept every answer
 out of attention, and the untrained memory supplied nothing, the best policy
 the model could learn was to guess a plausible name. Every memory arm trained
@@ -225,8 +225,8 @@ truth (corpus A keeps 75\%) but consolidate only 49\% as many facts and drift
 past the budget. The dreams look like dreams: the core fact is usually right,
 details are invented and inconsistent (``founded by Nimbleton in 1855'', then
 ``in 1844''), and some are false (``the capital of Lutvay is Lutvay'').
-Consensus voting fixes both failures: 81\% of the control's retained facts and
-drift within budget. Re-dreamed old facts are only as accurate as current
+Consensus voting fixes both failures: 81\% of the control's retained facts
+($\sim$79 against $\sim$98 of 180) and drift within budget (+0.043). Re-dreamed old facts are only as accurate as current
 recall, so mis-remembered facts are rehearsed as faithfully as correct ones.
 
 \begin{table}[t]\centering\small
@@ -262,7 +262,7 @@ val drift & +0.010 & +0.018 & +0.018\\\bottomrule
 
 The loop clears its pre-registered bars (learning $\geq$+10pp over no sleep;
 corpus A keeps $\geq$50\%; drift $\leq$+0.05), but at the threshold: six facts
-learned, three kept. Every stage behaves as measured in isolation. Sleep turns
+learned, three kept (60 facts per corpus, one seed). Every stage behaves as measured in isolation. Sleep turns
 between half and two thirds of correct dreams into lasting recall in every
 arm (10/15, 22/35, 20/29 from the cache; 43/80 with the day in context), so the bottleneck is the first
 stage. Dream accuracy from the cache falls with fact density (voted: 70, 55,
