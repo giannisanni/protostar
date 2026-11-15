@@ -40,6 +40,7 @@ class TrainConfig:
     #                  make docs span windows, so memory is the ONLY channel
     #                  to earlier context — that is what rewards reading it
     reset_prob: float = 0.0625  # per-lane reset chance per window (mean age 1/p)
+    cur_near: float = 0.0  # share of curriculum emissions that re-ask an in-context fact
     cur_every: int = 0  # 0=off; N = every Nth global lane is a retrieval-curriculum stream
     init_from: str = ""  # load model WEIGHTS only: fresh optimizer/loader/step
     bptt_windows: int = 1  # backprop through K consecutive windows per lane (needs stateful)
@@ -142,7 +143,7 @@ def train(cfg: Config, t: TrainConfig) -> float:
     if t.stateful and t.cur_every:
         loader = CurriculumShards(t.data_dir, "train", t.batch, t.window or cfg.seq_len,
                                   rank=rank, world=world, cur_every=t.cur_every,
-                                  reset_prob=t.reset_prob, seed=t.seed)
+                                  reset_prob=t.reset_prob, seed=t.seed, near=t.cur_near)
     else:
         Loader = StatefulShards if t.stateful else Shards
         loader = Loader(t.data_dir, "train", t.batch, t.window or cfg.seq_len,

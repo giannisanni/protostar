@@ -15,7 +15,7 @@ case $GPU in *,*) PY=".venv/bin/torchrun --nproc_per_node=2" ;; *) PY=".venv/bin
 exec $PY train.py --config "configs/$ARM.json" \
   --data_dir /mnt/data/protostar/fineweb10B --out_dir "$OUT" \
   --init_from "$RUNS/v2_persist/ckpt_003000.pt" ${RESUME:+--resume "$RESUME"} \
-  --stateful 1 --window 512 --cur_every 4 --reset_prob 0.0625 --bptt_windows "$K" \
+  --stateful 1 --window 512 --cur_every 4 --cur_near ${CUR_NEAR:-0} --reset_prob 0.0625 --bptt_windows "$K" \
   --steps ${STEPS:-3000} --batch 8 --accum ${ACCUM:-32} \
   --muon_lr 0.005 --adam_lr 1e-4 --warmup 100 --decay_start 2000 \
   --val_every ${VAL_EVERY:-250} --ckpt_every ${CKPT_EVERY:-1000}

@@ -89,8 +89,13 @@ class FactStream:
     the model is never graded on facts its memory cannot contain.
     """
 
-    def __init__(self, enc, window, seed):
+    def __init__(self, enc, window, seed, near=0.0):
         self.enc, self.w = enc, window + 1  # loader windows are seq_len+1 tokens
+        # near: share of emissions that re-ask a fact still IN attention range
+        # (logged "near", not "probe"). Without it the only reward for a fact
+        # answer is the name prior, and training erased in-context copying
+        # (measured 2026-11-14: P(answer) 13.8% -> 0.0% after the curriculum).
+        self.near = near
         self.rng = random.Random(seed)
         self.buf, self.pos, self._n = [], 0, 0
         self.log = []  # (kind, fact_id, start_tok, end_tok) — for tests
@@ -105,6 +110,16 @@ class FactStream:
         cur = self.pos + len(self.buf)
         ready = [f for f in self.pool
                  if cur - f["end"] > self.w and f["probes"] > 0]
+        if self.near:
+            # same window as the fact's last mention, with room for the probe
+            close = [f for f in self.pool if f["last"] // self.w == cur // self.w] \
+                if cur % self.w < self.w - 40 else []
+            if close and self.rng.random() < self.near:
+                f = self.rng.choice(close)
+                toks = self.enc.encode(" " + qa(f))
+                f.update(end=cur + len(toks), last=cur)  # a mention: far probes keep their distance
+                self.log.append(("near", f["id"], cur, f["end"]))
+                return toks
         r = self.rng.random()
         if ready and r < 0.35:
             f = self.rng.choice(ready)
@@ -114,13 +129,13 @@ class FactStream:
             toks = self.enc.encode(" " + text)
             # the probe text CONTAINS the answer (teacher forcing) — it counts
             # as a fresh mention, so later probes must keep their distance
-            f["end"] = cur + len(toks)
+            f.update(end=cur + len(toks), last=cur)
             self.log.append(("probe", f["id"], cur, f["end"]))
             return toks
         if r < 0.5 and len(self.used) < 300:  # hard cap: never exhaust the namespace
             f = _fact(self.rng, self.used)
             toks = self.enc.encode(" " + statement(f))
-            f.update(end=cur + len(toks), probes=self.rng.randint(2, 4), id=self._n)
+            f.update(end=cur + len(toks), last=cur, probes=self.rng.randint(2, 4), id=self._n)
             self._n += 1
             self.pool.append(f)
             self.facts[f["id"]] = f

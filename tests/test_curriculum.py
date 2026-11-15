@@ -73,3 +73,20 @@ def test_training_vocab_disjoint_from_eval_vocab():
     assert not set(C.SYL) & set(SYL)
     names = {(a + b).capitalize() for a in C.SYL for b in C.SYL}
     assert not names & set(OBJECTS)
+
+
+def test_near_probes_stay_in_context_and_far_probes_still_never_leak():
+    fs = FactStream(ENC, 512, seed=0, near=0.15)
+    for _ in range(200):
+        fs.next_window()
+    w, mentions, kinds = fs.w, {}, {"near": 0, "probe": 0}
+    for kind, fid, start, end in fs.log:
+        if kind in kinds:
+            kinds[kind] += 1
+        if kind == "near":
+            assert start // w == (end - 1) // w == mentions[fid][-1][0] // w, "near probe not in its fact's window"
+        if kind == "probe":
+            for ms, me in mentions[fid]:
+                assert start // w not in range(ms // w, (me - 1) // w + 1), "far probe leaked"
+        mentions.setdefault(fid, []).append((start, end))
+    assert kinds["near"] > 50 and kinds["probe"] > 50, kinds
