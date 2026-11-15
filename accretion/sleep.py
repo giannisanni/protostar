@@ -58,7 +58,7 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
                 baseline_val=None,
                 val_eps=0.05, retention_floor=0.5, gate=True,
                 bucket_only=False, restructure_fn=restructure,
-                replay_frac=0.0, adaptive_replay=False, log=print):
+                replay_frac=0.0, adaptive_replay=False, dream=None, log=print):
     """One sleep cycle. Returns a dict of evidence; commits or rolls back.
 
     adaptive_replay  scale the rehearsal rate with how much there is to
@@ -72,6 +72,11 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
                      alive in the gradient signal instead of hoping they
                      survive untouched. Costs nothing to source — the registry
                      already stores every committed fact.
+    dream            (gen_day, gen_night) from accretion/dream.make_gen: the
+                     consolidation corpus is the model's OWN completions of
+                     answer-free cues (new facts dreamed from their day
+                     memory, prior facts re-dreamed from the weights). The
+                     ground-truth object never enters training.
     bucket_only      optimize ONLY sparse slots, leaving shared projections
                      frozen. Makes writes genuinely bucket-local, which is
                      what the design assumed but did not implement.
@@ -98,17 +103,26 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
     before_retention = recall(model, sub, prior_facts, probe_fn, enc, device) if prior_facts else 1.0
     snap = snapshot(sub)
 
-    # --- write: distil RESTRUCTURED variants, never the raw surface form ---
-    docs = [torch.tensor([enc.encode("\n".join(restructure_fn(f, n_variants)))], device=device)
-            for f in fresh]
+    dstats = {}
+    if dream:  # night: the corpus is dreamed, not given
+        from accretion.dream import dreams
+        texts, dstats["day"] = dreams(dream[0], fresh, restructure_fn, n_variants)
+        log(f"[cycle {cycle}] dreamed the day: {dstats['day']}")
+    else:  # distil RESTRUCTURED variants, never the raw surface form
+        texts = ["\n".join(restructure_fn(f, n_variants)) for f in fresh]
+    docs = [torch.tensor([enc.encode(t)], device=device) for t in texts]
     replay_docs = []
     if adaptive_replay and prior_facts:
         # proportional rehearsal, capped so new material always gets >= half
         replay_frac = min(0.5, len(prior_facts) / (len(prior_facts) + len(fresh)))
     if replay_frac > 0 and prior_facts:
-        replay_docs = [torch.tensor(
-            [enc.encode("\n".join(restructure_fn(f, n_variants)))], device=device)
-            for f in prior_facts]
+        if dream:  # re-dream old days from the current weights, before writing
+            from accretion.dream import dreams
+            rtexts, dstats["replay"] = dreams(dream[1], prior_facts, restructure_fn, n_variants)
+            log(f"[cycle {cycle}] replay dreams: {dstats['replay']}")
+        else:
+            rtexts = ["\n".join(restructure_fn(f, n_variants)) for f in prior_facts]
+        replay_docs = [torch.tensor([enc.encode(t)], device=device) for t in rtexts]
         log(f"[cycle {cycle}] replay: {len(replay_docs)} prior facts, "
             f"{replay_frac:.0%} of each batch")
     params = sub.bucket_params() if bucket_only else sub.write_params()
@@ -156,7 +170,7 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
         "retention_ok": ret_ok, "retention_vacuous": kept is None,
         "new_recall": round(new_recall, 4),
         "committed": passed, "gate_enabled": gate, "bucket_only": bucket_only,
-        "replay_frac": replay_frac,
+        "replay_frac": replay_frac, "dream": dstats or None,
     }
     keptstr = f"kept {kept:.1%}" if kept is not None else "no prior knowledge to protect"
     log(f"[cycle {cycle}] new_recall={new_recall:.1%}  dval={after_val - before_val:+.4f}"

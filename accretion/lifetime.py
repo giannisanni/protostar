@@ -58,6 +58,9 @@ def main():
     ap.add_argument("--varied", action="store_true",
                     help="heterogeneous domains per corpus: disjoint relations, "
                          "vocabulary and phrasing (0.5%% bigram overlap vs 68%%)")
+    ap.add_argument("--dream", action="store_true",
+                    help="sleep trains on the model's own dreams: day = one-shot "
+                         "fast-memory write, night = cue completions (accretion/dream.py)")
     ap.add_argument("--freeze-after", type=int, default=0,
                     help="after cycle N, write ONLY sparse slots "
                          "(shared projections frozen). 0 = never")
@@ -75,7 +78,7 @@ def main():
     for p in model.parameters():
         p.requires_grad_(False)
 
-    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "") + ("_adaptive" if a.adaptive_replay else "")
+    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "") + ("_adaptive" if a.adaptive_replay else "") + ("_dream" if a.dream else "")
     out = Path(a.out) / tag
     out.mkdir(parents=True, exist_ok=True)
     registry = KnowledgeRegistry(out / "registry.jsonl")
@@ -113,11 +116,18 @@ def main():
     matrix = {n: {} for n in names}
     for i, (name, corpus) in enumerate(zip(names, corpora), start=1):
         bucket_only = bool(a.freeze_after) and i > a.freeze_after
+        dream = None
+        if a.dream:
+            from accretion.dream import make_gen
+            day = {f["subject"]: f["doc"] for f in corpus}  # episodic buffer
+            dream = (make_gen(model, sub, enc, a.device, ctx=day),
+                     make_gen(model, sub, enc, a.device))
         consolidate(model, sub, corpus, registry, val_loss_fn, probe_fn, enc,
                     a.device, cycle=i, steps=a.steps, lr=a.lr,
                     gate=not a.no_gate, bucket_only=bucket_only,
                     restructure_fn=restr_fn, replay_frac=a.replay,
-                    adaptive_replay=a.adaptive_replay, baseline_val=base_val)
+                    adaptive_replay=a.adaptive_replay, baseline_val=base_val,
+                    dream=dream)
         # re-probe every corpus seen so far — this is the interference test
         for j, (pname, pcorpus) in enumerate(zip(names, corpora), start=1):
             if j <= i:
