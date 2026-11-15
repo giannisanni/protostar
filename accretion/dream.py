@@ -109,3 +109,53 @@ def live_day(model, sub, facts, enc, device):
     model.persist_memory = False
     model.fast.reset(1, device)
     return mems
+
+
+_FILLER = ["The weather held steady through the afternoon.",
+           "Traffic on the main road was light that day.",
+           "A few people waited at the station for the late train.",
+           "The market opened early and closed without incident.",
+           "Rain was expected later in the week."]
+
+
+@torch.no_grad()
+def live_day_stream(model, sub, facts, enc, device, window=512, seed=0):
+    """The literal day: every fact's doc is packed, whole, into consecutive
+    `window`-token windows between filler sentences and streamed through
+    the model with the fast memory carried (XL cache). The memory state
+    right after a fact's window is that fact's day memory, so its dream is
+    a cue in the NEXT window reading the cache: no fact text in context.
+    Returns (mems, n_windows)."""
+    import random
+    rng = random.Random(seed)
+    order = list(facts)
+    rng.shuffle(order)
+    windows, cur, members = [], [], []
+    for f in order:
+        doc = enc.encode(" " + f["doc"])
+        while len(cur) + len(doc) > window:  # close this window with filler
+            pad = enc.encode(" " + rng.choice(_FILLER))
+            if len(cur) + len(pad) > window:
+                windows.append((cur + enc.encode(" .") * (window - len(cur)), members))
+                cur, members = [], []
+                break
+            cur += pad
+        cur += doc
+        members.append(f["subject"])
+        for _ in range(rng.randint(0, 3)):  # filler between facts
+            pad = enc.encode(" " + rng.choice(_FILLER))
+            if len(cur) + len(pad) <= window:
+                cur += pad
+    if cur:
+        windows.append((cur, members))
+    mems = {}
+    model.persist_memory = True
+    model.fast.reset(1, device)
+    for toks, members in windows:
+        forward(model, sub, torch.tensor([toks[:window]], device=device))
+        snap = model.fast.snapshot()
+        for s in members:
+            mems[s] = snap
+    model.persist_memory = False
+    model.fast.reset(1, device)
+    return mems, len(windows)

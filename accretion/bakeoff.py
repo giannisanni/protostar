@@ -45,9 +45,12 @@ def forward(model, sub, idx, targets=None):
     walked embed -> blocks -> norm_f.
     """
     h = model.embed(idx)
+    xl = getattr(model.cfg, "fast_memory", False) and getattr(model.cfg, "mem", "ttt") == "xl"
+    if xl and not getattr(model, "persist_memory", False):
+        model.fast.reset(h.size(0), h.device, h.dtype)
     for i, blk in enumerate(model.blocks):
-        h = blk(h, model.cos, model.sin)
-        if getattr(model.cfg, "fast_memory", False) and i == model.cfg.fast_layer:
+        h = blk(h, model.cos, model.sin)  # xl: attention reads/writes the cache in here
+        if getattr(model.cfg, "fast_memory", False) and not xl and i == model.cfg.fast_layer:
             # respect persist_memory — a stateful caller (oneshot writes) needs
             # the state to survive. Second bug caused by this duplicated copy
             # of Protostar.forward; the regression test compares them.
@@ -64,6 +67,8 @@ def forward(model, sub, idx, targets=None):
             h = h + torch.sigmoid(model.gate(h)) * model.mem_proj(mem)
         if sub is not None:
             h = sub(h, idx, layer=i)
+    if xl:
+        model.fast.end_window()
     h = model.norm_f(h)
     if targets is None:
         return model.lm_head(h), None

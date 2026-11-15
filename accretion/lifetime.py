@@ -61,6 +61,9 @@ def main():
     ap.add_argument("--dream", action="store_true",
                     help="sleep trains on the model's own dreams: day = one-shot "
                          "fast-memory write, night = cue completions (accretion/dream.py)")
+    ap.add_argument("--day", choices=["context", "stream"], default="context",
+                    help="with --dream: hold the day in the context window, or stream it "
+                         "through the model and dream from the fast memory (XL cache)")
     ap.add_argument("--consensus", action="store_true",
                     help="with --dream: each fact's dreams vote; cues are completed with the winner")
     ap.add_argument("--freeze-after", type=int, default=0,
@@ -80,7 +83,7 @@ def main():
     for p in model.parameters():
         p.requires_grad_(False)
 
-    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "") + ("_adaptive" if a.adaptive_replay else "") + ("_dream" if a.dream else "") + ("_consensus" if a.consensus else "")
+    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "") + ("_adaptive" if a.adaptive_replay else "") + ("_dream" if a.dream else "") + ("_consensus" if a.consensus else "") + ("_stream" if a.day == "stream" else "")
     out = Path(a.out) / tag
     out.mkdir(parents=True, exist_ok=True)
     registry = KnowledgeRegistry(out / "registry.jsonl")
@@ -120,10 +123,18 @@ def main():
         bucket_only = bool(a.freeze_after) and i > a.freeze_after
         dream = None
         if a.dream:
-            from accretion.dream import make_gen
-            day = {f["subject"]: f["doc"] for f in corpus}  # episodic buffer
-            dream = (make_gen(model, sub, enc, a.device, ctx=day),
+            from accretion.dream import live_day_stream, make_gen
+            if a.day == "stream":
+                mems, nw = live_day_stream(model, sub, corpus, enc, a.device, seed=i)
+                print(f"[day {i}] streamed {len(corpus)} facts in {nw} windows through the fast memory", flush=True)
+                day_gen = make_gen(model, sub, enc, a.device, mems=mems)
+            else:
+                day = {f["subject"]: f["doc"] for f in corpus}  # episodic buffer
+                day_gen = make_gen(model, sub, enc, a.device, ctx=day)
+            dream = (day_gen,
                      make_gen(model, sub, enc, a.device), a.consensus)
+        pre = recall(model, sub, corpus, probe_fn, enc, a.device)
+        print(f"[day {i}] recall BEFORE sleep, memory empty (no-sleep control): {pre:.1%}", flush=True)
         consolidate(model, sub, corpus, registry, val_loss_fn, probe_fn, enc,
                     a.device, cycle=i, steps=a.steps, lr=a.lr,
                     gate=not a.no_gate, bucket_only=bucket_only,

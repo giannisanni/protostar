@@ -40,3 +40,16 @@ def test_consensus_outvotes_odd_dreams_and_drops_details():
     docs, _ = dreams(gen, facts, restructure, consensus=True)
     for d in docs:
         assert "Duskrow" not in d and "1855" not in d and d.count("Belloran.") >= 5
+
+
+def test_stream_day_packs_every_fact_whole_into_windows():
+    import tiktoken, torch
+    from accretion.dream import live_day_stream
+    from model import Config, Protostar
+    enc = tiktoken.get_encoding("gpt2")
+    m = Protostar(Config(d=64, n_layer=4, n_head=4, n_kv_head=2, vocab=50304, seq_len=1024,
+                         fast_memory=True, mem="xl", xl_size=512)).eval()
+    facts = make_facts(20, seed=6)
+    mems, nw = live_day_stream(m, None, facts, enc, "cpu")
+    assert set(mems) == {f["subject"] for f in facts} and nw >= 2
+    assert len({id(v) for v in mems.values()}) == nw  # one cache state per window

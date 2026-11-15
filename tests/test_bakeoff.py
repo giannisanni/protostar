@@ -19,7 +19,7 @@ def test_bakeoff_forward_matches_model_forward():
     from accretion.bakeoff import forward
     from model import Config, Protostar
 
-    for extra in ({}, {"fast_memory": True}):
+    for extra in ({}, {"fast_memory": True}, {"fast_memory": True, "mem": "xl", "xl_size": 32}):
         torch.manual_seed(0)
         cfg = Config(d=64, n_layer=6, n_head=4, n_kv_head=2, seq_len=64,
                      vocab=512, fast_hidden=128, fast_chunk=16, fast_layer=3,
@@ -31,3 +31,13 @@ def test_bakeoff_forward_matches_model_forward():
             b, _ = forward(m, None, x)
         torch.testing.assert_close(a, b, atol=1e-5, rtol=1e-4,
                                    msg=f"bakeoff.forward diverged for {extra}")
+        if extra.get("mem") == "xl":  # carried cache: second window must match too
+            outs = []
+            for f in (m, lambda ids: forward(m, None, ids)):
+                m.persist_memory = True
+                m.fast.reset(2)
+                with torch.no_grad():
+                    f(x)
+                    outs.append(f(x)[0])
+                m.persist_memory = False
+            torch.testing.assert_close(outs[0], outs[1], atol=1e-5, rtol=1e-4)
