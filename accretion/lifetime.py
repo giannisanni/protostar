@@ -18,6 +18,7 @@ versus WITH it.
 """
 import argparse
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -70,6 +71,10 @@ def main():
                     help="after cycle N, write ONLY sparse slots "
                          "(shared projections frozen). 0 = never")
     ap.add_argument("--out", default="/mnt/data/protostar/lifetime")
+    ap.add_argument("--train-names", action="store_true",
+                    help="corpora from cuetune's TRAINING names (never the eval subjects); "
+                         "for making realistic post-sleep substrates to tune against")
+    ap.add_argument("--save-subs", default="", help="dir: save the substrate after every cycle")
     ap.add_argument("--device", default="cuda:0")
     a = ap.parse_args()
 
@@ -105,6 +110,16 @@ def main():
         corpora = [make_varied_facts(a.facts_per_corpus, domain=i, seed=100)
                    for i in range(a.corpora)]
         probe_fn, restr_fn = varied_probe, varied_restructure
+    elif a.train_names:
+        import random as _r
+        from accretion.cuetune import _fact, train_names
+        from accretion.facts import OBJECTS, ROLES
+        rng = _r.Random(7)
+        pool = rng.sample(train_names(), a.corpora * a.facts_per_corpus)
+        corpora = [[_fact(s, rng.choice(OBJECTS), rng.choice(ROLES))
+                    for s in pool[i * a.facts_per_corpus:(i + 1) * a.facts_per_corpus]]
+                   for i in range(a.corpora)]
+        probe_fn, restr_fn = l1_probe, restructure
     else:
         corpora = [make_facts(a.facts_per_corpus, seed=100 + i) for i in range(a.corpora)]
         probe_fn, restr_fn = l1_probe, restructure
@@ -141,6 +156,9 @@ def main():
                     restructure_fn=restr_fn, replay_frac=a.replay,
                     adaptive_replay=a.adaptive_replay, baseline_val=base_val,
                     dream=dream)
+        if a.save_subs:
+            os.makedirs(a.save_subs, exist_ok=True)
+            torch.save(sub.state_dict(), os.path.join(a.save_subs, f"sub_{i}.pt"))
         # re-probe every corpus seen so far — this is the interference test
         for j, (pname, pcorpus) in enumerate(zip(names, corpora), start=1):
             if j <= i:

@@ -83,6 +83,9 @@ def main():
     ap.add_argument("--lr", type=float, default=5e-5)
     ap.add_argument("--only", default="", help="regex: train only matching params (rest frozen)")
     ap.add_argument("--lm_weight", type=float, default=1.0)
+    ap.add_argument("--subs", nargs="*", default=[],
+                    help="post-sleep substrate state_dicts; each step runs through one of them "
+                         "or none, so the cache read learns to survive the lifetime tables")
     a = ap.parse_args()
     dev = "cuda"
     enc, rng = tiktoken.get_encoding("gpt2"), random.Random(0)
@@ -95,6 +98,14 @@ def main():
             p.requires_grad_(bool(re.search(a.only, n)))
         print("training", sum(p.numel() for p in m.parameters() if p.requires_grad), "params", flush=True)
     opt = torch.optim.AdamW([p for p in m.parameters() if p.requires_grad], lr=a.lr, weight_decay=0.0, betas=(0.9, 0.95))
+    from accretion.bakeoff import forward
+    from accretion.substrates import build_substrate
+    subs = [None]
+    for path in a.subs:
+        sb = build_substrate("engram", d=m.cfg.d, n_layer=m.cfg.n_layer).to(dev)
+        sb.load_state_dict(torch.load(path, map_location=dev, weights_only=True))
+        sb.requires_grad_(False)
+        subs.append(sb)
     lm = Shards(a.data, "train", a.batch, W).batches()
     os.makedirs(a.out, exist_ok=True)
     log = open(os.path.join(a.out, "log.csv"), "w")
@@ -108,13 +119,14 @@ def main():
         with torch.autocast("cuda", torch.bfloat16):
             m.persist_memory = True
             m.fast.reset(a.batch, dev)
-            m(w1)  # writes the cache; its graph stays attached
-            logits, _ = m(w2)
+            sb = rng.choice(subs)
+            forward(m, sb, w1)  # writes the cache; its graph stays attached
+            logits, _ = forward(m, sb, w2)
             lg, tg = logits[:, :-1][mk].float(), w2[:, 1:][mk]
             cue = F.cross_entropy(lg, tg)
             m.persist_memory = False
             b = next(lm).to(dev)
-            _, lml = m(b[:, :-1], targets=b[:, 1:])
+            _, lml = forward(m, sb, b[:, :-1], b[:, 1:])
             loss = cue + a.lm_weight * lml
         opt.zero_grad(set_to_none=True)
         loss.backward()
