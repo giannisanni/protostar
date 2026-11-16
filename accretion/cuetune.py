@@ -12,6 +12,7 @@ import argparse
 import math
 import os
 import random
+import re
 import sys
 from pathlib import Path
 
@@ -80,6 +81,8 @@ def main():
     ap.add_argument("--steps", type=int, default=800)
     ap.add_argument("--batch", type=int, default=8)
     ap.add_argument("--lr", type=float, default=5e-5)
+    ap.add_argument("--only", default="", help="regex: train only matching params (rest frozen)")
+    ap.add_argument("--lm_weight", type=float, default=1.0)
     a = ap.parse_args()
     dev = "cuda"
     enc, rng = tiktoken.get_encoding("gpt2"), random.Random(0)
@@ -87,7 +90,11 @@ def main():
     ck = torch.load(a.ckpt, map_location="cpu", weights_only=True)
     m = Protostar(Config(**ck["cfg"])).to(dev).train()
     m.load_state_dict(ck["model"])
-    opt = torch.optim.AdamW(m.parameters(), lr=a.lr, weight_decay=0.0, betas=(0.9, 0.95))
+    if a.only:
+        for n, p in m.named_parameters():
+            p.requires_grad_(bool(re.search(a.only, n)))
+        print("training", sum(p.numel() for p in m.parameters() if p.requires_grad), "params", flush=True)
+    opt = torch.optim.AdamW([p for p in m.parameters() if p.requires_grad], lr=a.lr, weight_decay=0.0, betas=(0.9, 0.95))
     lm = Shards(a.data, "train", a.batch, W).batches()
     os.makedirs(a.out, exist_ok=True)
     log = open(os.path.join(a.out, "log.csv"), "w")
@@ -108,7 +115,7 @@ def main():
             m.persist_memory = False
             b = next(lm).to(dev)
             _, lml = m(b[:, :-1], targets=b[:, 1:])
-            loss = cue + lml
+            loss = cue + a.lm_weight * lml
         opt.zero_grad(set_to_none=True)
         loss.backward()
         torch.nn.utils.clip_grad_norm_(m.parameters(), 1.0)
