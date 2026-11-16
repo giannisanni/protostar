@@ -53,3 +53,17 @@ def test_stream_day_packs_every_fact_whole_into_windows():
     mems, nw = live_day_stream(m, None, facts, enc, "cpu")
     assert set(mems) == {f["subject"] for f in facts} and nw >= 2
     assert len({id(v) for v in mems.values()}) == nw  # one cache state per window
+
+
+def test_cuetune_sample_holds_out_eval_and_masks_answers():
+    import random
+    import tiktoken
+    from accretion.cuetune import HELD_OUT, W, sample, train_names
+    from accretion.facts import OBJECTS
+    names = train_names()
+    assert names and not set(names) & HELD_OUT
+    enc = tiktoken.get_encoding("gpt2")
+    w1, w2, mk = sample(random.Random(1), enc, names)
+    assert len(w1) == len(w2) == len(mk) == W
+    ans = enc.decode([t for t, k in zip(w2, mk) if k])
+    assert ans.split() and all(x in OBJECTS for x in ans.split())
