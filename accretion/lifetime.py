@@ -67,6 +67,9 @@ def main():
                          "through the model and dream from the fast memory (XL cache)")
     ap.add_argument("--consensus", action="store_true",
                     help="with --dream: each fact's dreams vote; cues are completed with the winner")
+    ap.add_argument("--replay-agree", type=int, default=0,
+                    help="with --consensus: skip re-dreaming a prior fact unless its winner "
+                         "got at least K of the n votes (0 = rehearse every guess)")
     ap.add_argument("--freeze-after", type=int, default=0,
                     help="after cycle N, write ONLY sparse slots "
                          "(shared projections frozen). 0 = never")
@@ -88,7 +91,7 @@ def main():
     for p in model.parameters():
         p.requires_grad_(False)
 
-    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "") + ("_adaptive" if a.adaptive_replay else "") + ("_dream" if a.dream else "") + ("_consensus" if a.consensus else "") + ("_stream" if a.day == "stream" else "")
+    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "") + ("_adaptive" if a.adaptive_replay else "") + ("_dream" if a.dream else "") + ("_consensus" if a.consensus else "") + (f"_agree{a.replay_agree}" if a.replay_agree else "") + ("_stream" if a.day == "stream" else "")
     out = Path(a.out) / tag
     out.mkdir(parents=True, exist_ok=True)
     registry = KnowledgeRegistry(out / "registry.jsonl")
@@ -147,7 +150,7 @@ def main():
                 day = {f["subject"]: f["doc"] for f in corpus}  # episodic buffer
                 day_gen = make_gen(model, sub, enc, a.device, ctx=day)
             dream = (day_gen,
-                     make_gen(model, sub, enc, a.device), a.consensus)
+                     make_gen(model, sub, enc, a.device), a.consensus, a.replay_agree)
         pre = recall(model, sub, corpus, probe_fn, enc, a.device)
         print(f"[day {i}] recall BEFORE sleep, memory empty (no-sleep control): {pre:.1%}", flush=True)
         consolidate(model, sub, corpus, registry, val_loss_fn, probe_fn, enc,

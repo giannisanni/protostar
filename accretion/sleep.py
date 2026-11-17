@@ -118,7 +118,8 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
     if replay_frac > 0 and prior_facts:
         if dream:  # re-dream old days from the current weights, before writing
             from accretion.dream import dreams
-            rtexts, dstats["replay"] = dreams(dream[1], prior_facts, restructure_fn, n_variants, consensus=dream[2])
+            rtexts, dstats["replay"] = dreams(dream[1], prior_facts, restructure_fn, n_variants,
+                                             consensus=dream[2], min_agree=dream[3] if len(dream) > 3 else 0)
             log(f"[cycle {cycle}] replay dreams: {dstats['replay']}")
         else:
             rtexts = ["\n".join(restructure_fn(f, n_variants)) for f in prior_facts]

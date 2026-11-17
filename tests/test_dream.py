@@ -67,3 +67,19 @@ def test_cuetune_sample_holds_out_eval_and_masks_answers():
     assert len(w1) == len(w2) == len(mk) == W
     ans = enc.decode([t for t, k in zip(w2, mk) if k])
     assert ans.split() and all(x in OBJECTS for x in ans.split())
+
+
+def test_min_agree_drops_unsure_facts():
+    from accretion.dream import dreams
+    facts = [{"subject": "Ana", "object": "red"}, {"subject": "Bo", "object": "blue"}]
+    calls = {"n": 0}
+
+    def gen(f, c):  # Ana: unanimous; Bo: split 3 ways
+        calls["n"] += 1
+        return "red" if f["subject"] == "Ana" else ["blue", "green", "pink"][calls["n"] % 3]
+
+    rs = lambda f, n: [f"{f['subject']} likes {f['object']}"] * n
+    docs, st = dreams(gen, facts, rs, n=6, consensus=True, min_agree=4)
+    assert len(docs) == 1 and st["dropped"] == 1 and st["dream_acc"] == 1.0
+    docs, st = dreams(gen, facts, rs, n=6, consensus=True)
+    assert len(docs) == 2 and "dropped" not in st

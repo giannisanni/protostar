@@ -41,20 +41,26 @@ def _first_word(ans):
     return w[0].strip(",;:!?\"'") if w else ""
 
 
-def dreams(gen, facts, restructure_fn, n=7, consensus=False):
+def dreams(gen, facts, restructure_fn, n=7, consensus=False, min_agree=0):
     """One dream per cue. gen(prompt) -> continuation. Returns
     ([docs], stats); docs are cue + dreamed answer, one per fact.
     consensus: the fact's n dreams vote (first word of each answer) and every
     cue is completed with the winner alone, so one odd dream is outvoted
-    and invented details ("in 1855") are dropped. Still no ground truth."""
+    and invented details ("in 1855") are dropped. Still no ground truth.
+    min_agree: with consensus, a fact whose winner got fewer than this many
+    of the n votes is not dreamed at all (the model is unsure; rehearsing a
+    guess teaches the guess). Uses only the votes, never the truth."""
     from collections import Counter
-    docs, right, total = [], 0, 0
+    docs, right, total, dropped = [], 0, 0, 0
     for f in facts:
         cs = cues(f, restructure_fn, n)
         answers = [_cut(gen(f, c)) for c in cs]
         if consensus:
             votes = Counter(w for w in map(_first_word, answers) if w)
-            win = votes.most_common(1)[0][0] if votes else ""
+            win, cnt = votes.most_common(1)[0] if votes else ("", 0)
+            if cnt < min_agree:
+                dropped += 1
+                continue
             answers = [win] * len(cs)
         lines = []
         for c, ans in zip(cs, answers):
@@ -63,7 +69,10 @@ def dreams(gen, facts, restructure_fn, n=7, consensus=False):
             total += 1
         docs.append("\n".join(lines))
     acc = right / max(total, 1)
-    return docs, {"dream_acc": round(acc, 4), "false": round(1 - acc, 4), "n": total}
+    st = {"dream_acc": round(acc, 4), "false": round(1 - acc, 4), "n": total}
+    if min_agree:
+        st["dropped"] = dropped
+    return docs, st
 
 
 def make_gen(model, sub, enc, device, mems=None, ctx=None, n_tok=6):

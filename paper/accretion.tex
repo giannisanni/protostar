@@ -31,11 +31,16 @@ memory, per-token write strength, an uncompressed slot memory) failed at
 \emph{addressing} rather than storage; reusing the backbone's own attention
 through a Transformer-XL cache raised one-window-back recall from 4.3\% to
 94.1\%. (3) Voted dreams consolidate at 81\% of the ground-truth control and
-preserve old knowledge under later learning. The full loop clears its
-pre-registered bars, but only at the margin; the bottleneck is the accuracy of
-dreams read from the cache at realistic fact density. All thresholds were set
-before each run, and every probe is reported against the model's own
-in-context ceiling.
+preserve old knowledge under later learning. (4) The first full loop cleared
+its pre-registered bars only at the margin, because the cache could hold a fact
+without the model being able to answer a cue from it (27\% at realistic
+density). Short training on the cue format with held-out subjects and
+per-sample random answers raised cache dreams to 100\%; tuning only the
+attention query and key projections, against real post-sleep tables, does so
+within 0.013 of the untuned model's val loss, and the loop then learns 57\% of a day's
+facts (0\% without sleep) and keeps half of them after two more days. All
+thresholds were set before each run, and every probe is reported against the
+model's own in-context ceiling.
 \end{abstract}
 
 \section{Introduction}
@@ -180,9 +185,13 @@ cache.
 
 The cache has a cost. With the cache carried, FineWeb val is 3.498 against
 3.342 for the round-3 model; the gap persists under every evaluation protocol.
-Our hypothesis is that NoPE attention infers order from the causal mask, which
-an always-visible cache breaks. Round 6 adds a learned bias on cached logits
-\todo{round 6 result: val, currprobe}.
+Our hypothesis was that NoPE attention infers order from the causal mask, which
+an always-visible cache breaks. Round 6 tested it with a learned per-head bias
+on cached logits, plus a denser curriculum (50\% fact lines against 35\%) with
+facts wrapped in document-style framings. Recall one window back held (+88.4),
+but val did not move (3.496) and the learned bias stayed near zero, so the
+hypothesis is not supported. The gap remains open; we leave it as a
+limitation.
 
 \begin{table}[t]\centering\small
 \caption{Fast-tier rounds. Memory gain = first-token accuracy on facts stated one
@@ -199,7 +208,8 @@ round & fast tier & gain & note\\\midrule
 3 & per-token matrix & +3.5 & read rank 18/512\\
 4 & slot memory (no compression) & +1.2 & gate 1.00; fact mass 3.9\% vs 2.7\%\\
 5 & Transformer-XL cache & \textbf{+89.8} & 94.1\% vs 4.3\%; val +0.16\\
-6 & XL + cache bias + denser, wrapped curriculum & \todo{} & \\\bottomrule
+6 & XL + cache bias + denser, wrapped curriculum & +88.4 & val 3.496; bias $\approx$0\\
+7c & round 5 + cue tuning (q/k only) & +88.2 & val 3.511\\\bottomrule
 \end{tabular}\end{table}
 
 \subsection{Sleep, replay and interference}
@@ -268,7 +278,65 @@ arm (10/15, 22/35, 20/29 from the cache; 43/80 with the day in context), so the 
 stage. Dream accuracy from the cache falls with fact density (voted: 70, 55,
 47, 33, 27\% at 1, 2, 3, 5 and $\sim$10 facts per window), and even one fact per
 window reaches only 70\% on framings the model never trained on.
-\todo{round 6 full-loop result}
+
+Round 6 retrained the backbone on denser, document-wrapped facts to close that
+gap. It made it worse: voted cache dreams fell to 52, 37 and 8\% at 1, 3 and
+packed facts per window, and the loop failed three of its four bars (corpus A
++8.3pp, kept 40\%). Denser retrieval training teaches the model to answer
+\emph{probes} from the cache; it does not teach it to answer \emph{cues}.
+
+\subsection{Cue tuning}
+\label{sec:cuetune}
+We therefore trained the dreaming step directly. Each sample is two windows.
+The first holds 1 to 12 fact documents in the format the day stream uses,
+padded with FineWeb filler to 512 tokens; the second holds the night's cues for
+those facts, each followed by its answer, with the first cue at position 0 so
+that nothing of the first window is in context. The loss is cross-entropy on
+the answer tokens only, plus the ordinary language-modeling loss on a FineWeb
+batch at weight 1, and gradients flow through the carried cache. Two choices
+keep this from being memorization. The subjects of the three evaluation corpora
+are held out of training (241 of the 400 possible names remain), and every
+answer is drawn fresh for every sample, so no subject is tied to any object in
+the weights; the only thing that can be learned is to read the answer from the
+cache. Leak controls on the evaluation corpora confirm it: voted dream accuracy
+is 100\% with the right cache, 13 to 20\% with another day's cache, and 0 to
+2\% with no memory (chance is 10\%).
+
+Table~\ref{tab:cuetune} lists the variants. Tuning all weights (round 7, lr
+$5\times10^{-5}$, 1600 steps) gives perfect cache dreams at every density and
+the strongest loop, but it costs language modeling (val carried 3.673, against
+a pre-registered ceiling of 3.52). Tuning only the query and key projections of
+all attention layers (2.9M parameters) keeps val within budget (3.508) and keeps
+the cache dreams, but corpus A keeps only 32\%: dreams of the current day decay
+from 85 to 66\% across nights. The cause is that the cue read was tuned with the
+lifetime tables empty, and after sleep they are not. Round 7c continues the
+query/key tuning for 800 steps with the tables sampled from three real
+post-sleep states (built from training-name corpora only). It passes all four
+pre-registered bars: val 3.511, cache dreams 100\% at every density, corpus A
+learned at 56.7\% against 0\% without sleep, kept at exactly 50.0\% after two
+more days, drift +0.024.
+
+\begin{table}[t]\centering\small
+\caption{Full loop after cue tuning (day streamed through the cache, voted
+dreams, gate off, 3$\times$60 facts, one seed). ``Truth'' trains the round-7
+model's sleep on the true answers. Bars: val $\leq$3.52, A learned $\geq$+20pp
+over no sleep, A kept $\geq$50\%, drift $\leq$+0.05.}\label{tab:cuetune}
+\begin{tabular}{lrrrrr}\toprule
+& r5 & r7 all & r7 truth & r7b q/k & r7c q/k + tables\\\midrule
+val, cache carried & 3.498 & 3.673 & 3.673 & 3.508 & \textbf{3.511}\\
+cache dreams, packed & 27\% & 100\% & -- & 100\% & 100\%\\
+corpus A after its sleep & 10.0\% & 56.7\% & 58.3\% & 56.7\% & 56.7\%\\
+corpus A after 2 more days & 5.0\% & 38.3\% & 55.0\% & 18.3\% & 28.3\%\\
+A kept & 50\% & 67.6\% & 94.3\% & 32.3\% & \textbf{50.0\%}\\
+facts retained of 180 & $\sim$24 & $\sim$79 & $\sim$100 & $\sim$46 & $\sim$56\\
+day dreams, nights 1/2/3 & & 100/95/88 & -- & --/85/66 & 100/93/80\\
+replay dreams, nights 2/3 & & 60/42 & -- & 28/23 & 47/24\\
+val drift & +0.018 & +0.022 & +0.020 & +0.021 & +0.024\\\bottomrule
+\end{tabular}\end{table}
+
+The remaining loss is in rehearsal. Old facts are re-dreamed from the weights,
+and by night 3 only 24\% of those dreams are right, so most of what is rehearsed
+about corpus A is wrong. \todo{round 8: vote-agreement gate on replay dreams}
 
 \section{Related work}
 \textbf{Test-time memory.} TTT layers \citep{sun2024ttt} and Titans
@@ -295,7 +363,11 @@ Corpora of 60 facts make each corpus-level percentage a handful of facts. The
 answer vocabulary has ten names. The facts are synthetic and the paraphrase
 probes are light. The fast tier is a bounded cache, so facts older than one
 window rely on sleep. The XL model is worse at ordinary language modeling than
-the matrix-memory model. Scale is 134M parameters and 393M tokens per round;
+the matrix-memory model (3.51 against 3.34), and a cache bias did not close the
+gap. Cue tuning trains the exact cue format the night uses; held-out subjects
+and per-sample answers rule out memorized facts, but not that the read is
+specific to this format. The best loop keeps exactly the pre-registered 50\%,
+from one seed. Scale is 134M parameters and 393M tokens per round;
 paraphrase-invariant retrieval at this size is capacity-limited (30\% in-context
 ceiling on our hardest probe level). Lifetime tables are trained by
 gradient descent; one-shot writes into the fast-weight memory across documents
@@ -304,8 +376,11 @@ failed (0\%).
 \section{Conclusion}
 A small model can learn by day and consolidate by night with no ground truth
 after the day itself: it dreams about what it read, votes on its dreams, sleeps
-on them, and keeps the result. Today it does so weakly, and we know which stage
-to fix. The two lessons we would pass on are methodological. Measure the
+on them, and keeps the result. The stage that failed first was not storage
+but the step from memory to a dream: the cache held the facts and the model
+could not answer a cue from it until it was trained to. After that it learns
+more than half of a day and keeps half of that. The weak stage now is
+rehearsal, where old facts are re-dreamed from imperfect weights. The two lessons we would pass on are methodological. Measure the
 backbone's own ceiling on every probe before setting a bar. And when a new
 memory module stores information but does not use it, check whether the model
 already has a retrieval circuit you could hand the memory to.
