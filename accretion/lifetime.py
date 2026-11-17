@@ -70,6 +70,9 @@ def main():
     ap.add_argument("--replay-agree", type=int, default=0,
                     help="with --consensus: skip re-dreaming a prior fact unless its winner "
                          "got at least K of the n votes (0 = rehearse every guess)")
+    ap.add_argument("--micro", action="store_true",
+                    help="with --day stream: one small sleep per window as it leaves the "
+                         "cache (steps split evenly) instead of one sleep per day")
     ap.add_argument("--freeze-after", type=int, default=0,
                     help="after cycle N, write ONLY sparse slots "
                          "(shared projections frozen). 0 = never")
@@ -91,7 +94,7 @@ def main():
     for p in model.parameters():
         p.requires_grad_(False)
 
-    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "") + ("_adaptive" if a.adaptive_replay else "") + ("_dream" if a.dream else "") + ("_consensus" if a.consensus else "") + (f"_agree{a.replay_agree}" if a.replay_agree else "") + ("_stream" if a.day == "stream" else "")
+    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "") + ("_adaptive" if a.adaptive_replay else "") + ("_dream" if a.dream else "") + ("_consensus" if a.consensus else "") + (f"_agree{a.replay_agree}" if a.replay_agree else "") + ("_stream" if a.day == "stream" else "") + ("_micro" if a.micro else "")
     out = Path(a.out) / tag
     out.mkdir(parents=True, exist_ok=True)
     registry = KnowledgeRegistry(out / "registry.jsonl")
@@ -153,12 +156,23 @@ def main():
                      make_gen(model, sub, enc, a.device), a.consensus, a.replay_agree)
         pre = recall(model, sub, corpus, probe_fn, enc, a.device)
         print(f"[day {i}] recall BEFORE sleep, memory empty (no-sleep control): {pre:.1%}", flush=True)
-        consolidate(model, sub, corpus, registry, val_loss_fn, probe_fn, enc,
-                    a.device, cycle=i, steps=a.steps, lr=a.lr,
-                    gate=not a.no_gate, bucket_only=bucket_only,
-                    restructure_fn=restr_fn, replay_frac=a.replay,
-                    adaptive_replay=a.adaptive_replay, baseline_val=base_val,
-                    dream=dream)
+        # micro: facts grouped by the window that held them (same cache snapshot),
+        # each window slept on alone, in stream order; earlier windows are then
+        # prior facts, re-dreamed from the weights like any older day
+        chunks = [corpus]
+        if a.micro and a.day == "stream" and a.dream:
+            by = {}
+            for f in corpus:
+                by.setdefault(id(mems[f["subject"]]), []).append(f)
+            chunks = list(by.values())
+        for c, chunk in enumerate(chunks):
+            consolidate(model, sub, chunk, registry, val_loss_fn, probe_fn, enc,
+                        a.device, cycle=i * 100 + c if len(chunks) > 1 else i,
+                        steps=a.steps // len(chunks), lr=a.lr,
+                        gate=not a.no_gate, bucket_only=bucket_only,
+                        restructure_fn=restr_fn, replay_frac=a.replay,
+                        adaptive_replay=a.adaptive_replay, baseline_val=base_val,
+                        dream=dream)
         if a.save_subs:
             os.makedirs(a.save_subs, exist_ok=True)
             torch.save(sub.state_dict(), os.path.join(a.save_subs, f"sub_{i}.pt"))
