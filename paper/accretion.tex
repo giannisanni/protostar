@@ -38,10 +38,11 @@ density). Short training on the cue format with held-out subjects and
 per-sample random answers raised cache dreams to 100\%; tuning only the
 attention query and key projections, against real post-sleep tables, does so
 within 0.013 of the untuned model's val loss, and the loop then learns 57\% of a day's
-facts (0\% without sleep) and keeps half of them after two more days. Two
-label-free checks on rehearsal, whether the tables change a dream's answer and
-whether it is stable across nights, raise re-dreamed old facts from 24 to 79\%
-correct; splitting sleep into one small sleep per window, so that consolidation
+facts (0\% without sleep). Two label-free checks on rehearsal, whether the
+tables change a dream's answer and whether it is stable across nights, raise
+re-dreamed old facts from 27 to 77\% correct, and the model then keeps half of
+a day's facts after two more days (51\% against 40\% without the checks, mean
+of three seeds) and a quarter more knowledge overall; splitting sleep into one small sleep per window, so that consolidation
 runs during the day, fails. All
 thresholds were set before each run, and every probe is reported against the
 model's own in-context ceiling.
@@ -366,7 +367,30 @@ on nights 2 and 3, against 47 and 24\% unfiltered, and the model ends with
 about 70 of 180 facts against 56, at the same drift. Corpus A keeps 44\%
 against 50\%: the filters remove the facts the weights already lost, so they
 protect what is still known and cannot restore what is not, and without the
-answer nothing can. \todo{seeds 1--2: mean A kept and facts retained}
+answer nothing can.
+
+That single run understates the filters. Over three seeds, which change the
+tables' initialization, the order of each day's stream and which held-out
+corpus comes first (Table~\ref{tab:seeds}), the unfiltered loop keeps 39.8\%
+of corpus A on average, so the 50.0\% of round 7c was a lucky draw, and one
+seed collapses to 17.5\% as its replay dreams fall to 14\% correct. With both
+filters corpus A keeps 50.7\% on average and wins in two of three seeds, and
+the model retains more facts in all three (67 against 54 of 180 on average).
+Both pre-registered criteria hold: the filters help keeping and retention.
+
+\begin{table}[t]\centering\small
+\caption{Three seeds of the full loop on the round-7c model, without and with
+the ablation and stability filters. Night-1 learning is identical by
+construction (no old facts yet).}\label{tab:seeds}
+\begin{tabular}{lrrrr}\toprule
+& \multicolumn{2}{c}{A kept} & \multicolumn{2}{c}{retained of 180}\\
+seed & none & filters & none & filters\\\midrule
+0 (A learned 56.7\%) & 50.0\% & 44.1\% & $\sim$56 & $\sim$70\\
+1 (A learned 45.0\%) & 51.8\% & 63.0\% & $\sim$68 & $\sim$73\\
+2 (A learned 66.7\%) & 17.5\% & 45.0\% & $\sim$39 & $\sim$59\\\midrule
+mean & 39.8\% & \textbf{50.7\%} & $\sim$54 & $\sim$\textbf{67}\\
+replay right, n2/n3 & 46 / 27\% & 100 / 77\% & &\\\bottomrule
+\end{tabular}\end{table}
 
 \begin{table}[t]\centering\small
 \caption{Rehearsal filters on the round-7c model (same loop as
@@ -436,7 +460,8 @@ updating only memory slots that new knowledge activates more than pretraining
 did; our tables are written by ordinary gradient descent and could adopt it.
 
 \section{Limitations}
-One seed per arm; several effects sit within one to two standard errors.
+The final comparison uses three seeds; every other arm is one seed, and
+several effects sit within one to two standard errors.
 Corpora of 60 facts make each corpus-level percentage a handful of facts. The
 answer vocabulary has ten names. The facts are synthetic and the paraphrase
 probes are light. The fast tier is a bounded cache, so facts older than one
@@ -457,7 +482,7 @@ after the day itself: it dreams about what it read, votes on its dreams, sleeps
 on them, and keeps the result. The stage that failed first was not storage
 but the step from memory to a dream: the cache held the facts and the model
 could not answer a cue from it until it was trained to. After that it learns
-more than half of a day and keeps about half of that. Rehearsal from its own
+more than half of a day and, with filtered rehearsal, keeps about half of that. Rehearsal from its own
 dreams was mostly wrong until two label-free checks, whether the tables change
 the answer and whether the answer is stable across nights, made it mostly
 right; what still limits it is what the weights lose during sleep itself. The two lessons we would pass on are methodological. Measure the
