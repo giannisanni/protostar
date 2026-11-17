@@ -41,7 +41,8 @@ def _first_word(ans):
     return w[0].strip(",;:!?\"'") if w else ""
 
 
-def dreams(gen, facts, restructure_fn, n=7, consensus=False, min_agree=0):
+def dreams(gen, facts, restructure_fn, n=7, consensus=False, min_agree=0,
+           ablate_gen=None, history=None):
     """One dream per cue. gen(prompt) -> continuation. Returns
     ([docs], stats); docs are cue + dreamed answer, one per fact.
     consensus: the fact's n dreams vote (first word of each answer) and every
@@ -49,18 +50,34 @@ def dreams(gen, facts, restructure_fn, n=7, consensus=False, min_agree=0):
     and invented details ("in 1855") are dropped. Still no ground truth.
     min_agree: with consensus, a fact whose winner got fewer than this many
     of the n votes is not dreamed at all (the model is unsure; rehearsing a
-    guess teaches the guess). Uses only the votes, never the truth."""
+    guess teaches the guess). Uses only the votes, never the truth.
+    ablate_gen: the same cues answered with the lifetime tables off; if that
+    winner equals the dreamed one the tables add nothing (the fact was never
+    stored, the answer is the backbone's guess) and the fact is skipped.
+    history: subject -> last voted winner, updated in place; a fact whose
+    winner changed since the last night is unstable and skipped."""
     from collections import Counter
-    docs, right, total, dropped = [], 0, 0, 0
+    docs, right, total, dropped, flipped, unstored = [], 0, 0, 0, 0, 0
     for f in facts:
         cs = cues(f, restructure_fn, n)
         answers = [_cut(gen(f, c)) for c in cs]
         if consensus:
             votes = Counter(w for w in map(_first_word, answers) if w)
             win, cnt = votes.most_common(1)[0] if votes else ("", 0)
+            prev = history.get(f["subject"]) if history is not None else None
+            if history is not None:
+                history[f["subject"]] = win
             if cnt < min_agree:
                 dropped += 1
                 continue
+            if prev is not None and prev != win:
+                flipped += 1
+                continue
+            if ablate_gen is not None:
+                av = Counter(w for w in (_first_word(_cut(ablate_gen(f, c))) for c in cs) if w)
+                if av and av.most_common(1)[0][0] == win:
+                    unstored += 1
+                    continue
             answers = [win] * len(cs)
         lines = []
         for c, ans in zip(cs, answers):
@@ -72,6 +89,10 @@ def dreams(gen, facts, restructure_fn, n=7, consensus=False, min_agree=0):
     st = {"dream_acc": round(acc, 4), "false": round(1 - acc, 4), "n": total}
     if min_agree:
         st["dropped"] = dropped
+    if history is not None:
+        st["flipped"] = flipped
+    if ablate_gen is not None:
+        st["unstored"] = unstored
     return docs, st
 
 

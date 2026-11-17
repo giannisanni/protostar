@@ -83,3 +83,17 @@ def test_min_agree_drops_unsure_facts():
     assert len(docs) == 1 and st["dropped"] == 1 and st["dream_acc"] == 1.0
     docs, st = dreams(gen, facts, rs, n=6, consensus=True)
     assert len(docs) == 2 and "dropped" not in st
+
+
+def test_replay_filters_flip_and_unstored():
+    from accretion.dream import dreams
+    facts = [{"subject": "Ana", "object": "red"}, {"subject": "Bo", "object": "blue"}]
+    rs = lambda f, n: [f"{f['subject']} likes {f['object']}"] * n
+    gen = lambda f, c: "red" if f["subject"] == "Ana" else "blue"
+    hist = {"Ana": "red", "Bo": "green"}  # Bo flipped since last night
+    docs, st = dreams(gen, facts, rs, n=3, consensus=True, history=hist)
+    assert len(docs) == 1 and st["flipped"] == 1 and hist["Bo"] == "blue"
+    # tables-off answer equals dreamed answer for Ana -> never stored
+    off = lambda f, c: "red"
+    docs, st = dreams(gen, facts, rs, n=3, consensus=True, ablate_gen=off)
+    assert len(docs) == 1 and st["unstored"] == 1
