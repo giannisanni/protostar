@@ -1,0 +1,83 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 480" width="1000" height="480" color="#1b1f27">
+<style>
+.t{font-family:Helvetica,Arial,sans-serif;font-size:13px;fill:#1b1f27}
+.tb{font-family:Helvetica,Arial,sans-serif;font-size:14px;font-weight:bold;fill:#1b1f27}
+.tm{font-family:Menlo,monospace;font-size:11px;fill:#5b6472}
+.band{font-family:Menlo,monospace;font-size:11px;letter-spacing:1.1px}
+</style>
+<defs>
+<marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#1b1f27"/></marker>
+<marker id="ad" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#b26a00"/></marker>
+<marker id="an" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#4a4fc9"/></marker>
+</defs>
+<rect x="4" y="8" width="992" height="222" rx="10" fill="#fff3df"/>
+<rect x="4" y="250" width="992" height="222" rx="10" fill="#eceeff"/>
+<text x="20" y="30" class="band" style="fill:#b26a00">DAY · AWAKE · NO GRADIENT STEPS</text>
+<text x="980" y="460" text-anchor="end" class="band" style="fill:#4a4fc9">NIGHT · SLEEP · ONLY THE TABLES TRAIN</text>
+<g fill="#ffffff" stroke="#1b1f27" stroke-width="1.2">
+<rect x="20" y="52" width="160" height="64" rx="6"/>
+<rect x="270" y="52" width="250" height="64" rx="6"/>
+<rect x="820" y="52" width="160" height="64" rx="6"/>
+<rect x="270" y="150" width="250" height="60" rx="6" stroke="#b26a00" stroke-width="2"/>
+<rect x="600" y="150" width="210" height="60" rx="6" stroke="#4a4fc9" stroke-width="2"/>
+<rect x="20" y="294" width="160" height="64" rx="6"/>
+<rect x="230" y="294" width="190" height="64" rx="6"/>
+<rect x="470" y="294" width="190" height="64" rx="6"/>
+<rect x="710" y="294" width="140" height="64" rx="6"/>
+<rect x="872" y="294" width="116" height="64" rx="6"/>
+<rect x="20" y="398" width="260" height="58" rx="6"/>
+</g>
+<text x="100" y="80" text-anchor="middle" class="tb">Text stream</text>
+<text x="100" y="99" text-anchor="middle" class="tm">512-token windows</text>
+<text x="395" y="80" text-anchor="middle" class="tb">Backbone, 134M</text>
+<text x="395" y="99" text-anchor="middle" class="tm">24 blocks: 18 GDN + 6 attention</text>
+<text x="900" y="80" text-anchor="middle" class="tb">Answers</text>
+<text x="900" y="99" text-anchor="middle" class="tm">next-token predictions</text>
+<text x="395" y="175" text-anchor="middle" class="tb">Fast tier: XL cache</text>
+<text x="395" y="194" text-anchor="middle" class="tm">last window's keys/values</text>
+<text x="705" y="175" text-anchor="middle" class="tb">Lifetime tables</text>
+<text x="705" y="194" text-anchor="middle" class="tm">hashed n-grams, after 2 and 12</text>
+<text x="100" y="322" text-anchor="middle" class="tb">Cues</text>
+<text x="100" y="341" text-anchor="middle" class="tm">answer cut off</text>
+<text x="325" y="322" text-anchor="middle" class="tb">Model dreams</text>
+<text x="325" y="341" text-anchor="middle" class="tm">7 completions vote</text>
+<text x="565" y="322" text-anchor="middle" class="tb">Consolidate</text>
+<text x="565" y="341" text-anchor="middle" class="tm">AdamW, tables only</text>
+<text x="780" y="322" text-anchor="middle" class="tb">Gate</text>
+<text x="780" y="341" text-anchor="middle" class="tm">val drift, retention</text>
+<text x="930" y="322" text-anchor="middle" class="tb">Rollback</text>
+<text x="930" y="341" text-anchor="middle" class="tm">restore snapshot</text>
+<text x="150" y="423" text-anchor="middle" class="tb">Registry</text>
+<text x="150" y="442" text-anchor="middle" class="tm">subjects + evidence, no answers</text>
+<g stroke="#1b1f27" stroke-width="1.4" fill="none">
+<line x1="180" y1="84" x2="266" y2="84" marker-end="url(#a)"/>
+<line x1="520" y1="84" x2="816" y2="84" marker-end="url(#a)"/>
+<line x1="660" y1="150" x2="524" y2="104" marker-end="url(#a)"/>
+</g>
+<text x="223" y="76" text-anchor="middle" class="tm">reads</text>
+<text x="668" y="76" text-anchor="middle" class="tm">predicts</text>
+<text x="618" y="122" class="tm">read every token</text>
+<g stroke="#b26a00" stroke-width="1.6" fill="none">
+<line x1="350" y1="116" x2="350" y2="146" marker-end="url(#ad)"/>
+<line x1="440" y1="150" x2="440" y2="120" marker-end="url(#ad)"/>
+</g>
+<text x="342" y="136" text-anchor="end" class="tm" style="fill:#b26a00">writes window</text>
+<text x="448" y="136" class="tm" style="fill:#b26a00">next window reads it</text>
+<path d="M300 210 V 250 Q 300 268 318 280 L 322 290" stroke="#b26a00" stroke-width="1.6" fill="none" stroke-dasharray="5 4" marker-end="url(#ad)"/>
+<text x="290" y="240" text-anchor="end" class="tm" style="fill:#b26a00">cache read at night</text>
+<g stroke="#4a4fc9" stroke-width="1.6" fill="none">
+<line x1="180" y1="326" x2="226" y2="326" marker-end="url(#an)"/>
+<line x1="420" y1="326" x2="466" y2="326" marker-end="url(#an)"/>
+<line x1="660" y1="326" x2="706" y2="326" marker-end="url(#an)"/>
+<line x1="850" y1="326" x2="868" y2="326" marker-end="url(#an)"/>
+<line x1="760" y1="294" x2="720" y2="214" marker-end="url(#an)"/>
+<line x1="100" y1="398" x2="100" y2="362" marker-end="url(#an)"/>
+</g>
+<text x="443" y="316" text-anchor="middle" class="tm" style="fill:#4a4fc9">dreams</text>
+<text x="861" y="288" text-anchor="middle" class="tm" style="fill:#4a4fc9">fail</text>
+<text x="748" y="252" class="tm" style="fill:#4a4fc9">pass: commit</text>
+<text x="108" y="384" class="tm" style="fill:#4a4fc9">today's subjects + old ones</text>
+<text x="300" y="400" class="tm">old facts are re-dreamed from the weights;</text>
+<text x="300" y="416" class="tm">skipped if the tables do not change the</text>
+<text x="300" y="432" class="tm">vote, or the vote changed since last night</text>
+</svg>

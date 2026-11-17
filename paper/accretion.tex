@@ -69,6 +69,19 @@ residual stream and written only during sleep;
 \emph{dreams}, rehearses older knowledge by re-dreaming it, and is guarded by
 an external gate with rollback.
 \end{itemize}
+Figure~\ref{fig:loop} shows one day and one night.
+
+\begin{figure}[t]\centering
+\includegraphics[width=\textwidth]{figures/loop.pdf}
+\caption{The loop. Day: no weight changes; the backbone reads a stream in
+512-token windows, each attention block also sees the previous window through
+the XL cache, and every token reads the lifetime tables. Night: cues with the
+answer cut off are completed seven times from the cache, the completions vote,
+and only the voted dreams train the tables. Old facts are re-dreamed from the
+weights and filtered without the answer (Section~\ref{sec:filters}). A gate on
+held-out loss and old recall commits the write or restores the snapshot.}
+\label{fig:loop}
+\end{figure}
 
 The paper's contributions are as much about measurement as about the system.
 Two of our intermediate conclusions were wrong for the same reason: a pass bar
@@ -84,7 +97,17 @@ A 24-block decoder, $d=640$, GPT-2 tokenizer, trained on FineWeb-10B
 and no positional encoding. An ablation queue at 2B tokens selected this hybrid
 over dense attention (val 3.259 vs 3.286) and rejected multi-token prediction
 and a content-blind Engram-style table. Optimizer: Muon for matrices, AdamW
-elsewhere, warmup-stable-decay schedule.
+elsewhere, warmup-stable-decay schedule. Figure~\ref{fig:backbone} shows where
+each memory attaches.
+
+\begin{figure}[t]\centering
+\includegraphics[width=\textwidth]{figures/backbone.pdf}
+\caption{Where the memories sit. Eighteen Gated DeltaNet blocks (white) and six
+attention blocks (every fourth). The XL cache attaches to the attention blocks;
+the lifetime tables inject into the residual stream after blocks 2 and 12. The
+separate memory branch after block 12 was used only in rounds 0 to 4.}
+\label{fig:backbone}
+\end{figure}
 
 \subsection{Fast tier}
 We tested five fast tiers, each trained jointly with the backbone on a

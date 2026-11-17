@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 210" width="1000" height="210">
+<style>
+.t{font-family:Helvetica,Arial,sans-serif;font-size:13px;fill:#1b1f27}
+.tm{font-family:Menlo,monospace;font-size:11px;fill:#5b6472}
+</style>
+<defs><marker id="b" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M0 0L10 5L0 10z" fill="#1b1f27"/></marker></defs>
+<g stroke="#1b1f27" stroke-width="1" id="blocks"></g>
+<rect x="40" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="78" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="116" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="154" y="80" width="34" height="44" rx="4" fill="#b26a00" stroke="#1b1f27"/><rect x="192" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="230" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="268" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="306" y="80" width="34" height="44" rx="4" fill="#b26a00" stroke="#1b1f27"/><rect x="344" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="382" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="420" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="458" y="80" width="34" height="44" rx="4" fill="#b26a00" stroke="#1b1f27"/><rect x="496" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="534" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="572" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="610" y="80" width="34" height="44" rx="4" fill="#b26a00" stroke="#1b1f27"/><rect x="648" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="686" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="724" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="762" y="80" width="34" height="44" rx="4" fill="#b26a00" stroke="#1b1f27"/><rect x="800" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="838" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="876" y="80" width="34" height="44" rx="4" fill="#ffffff" stroke="#1b1f27"/><rect x="914" y="80" width="34" height="44" rx="4" fill="#b26a00" stroke="#1b1f27"/>
+<g class="tm" text-anchor="middle">
+<text x="57" y="142" class="tm">0</text><text x="171" y="142" class="tm">3</text><text x="323" y="142" class="tm">7</text><text x="475" y="142" class="tm">11</text>
+<text x="513" y="142" class="tm">12</text><text x="627" y="142" class="tm">15</text><text x="779" y="142" class="tm">19</text><text x="931" y="142" class="tm">23</text>
+</g>
+<g fill="none" stroke="#b26a00" stroke-width="1.4">
+<path d="M171 80 V 52"/><path d="M323 80 V 52"/><path d="M475 80 V 52"/><path d="M627 80 V 52"/><path d="M779 80 V 52"/><path d="M931 80 V 52"/>
+<path d="M171 52 H 931"/>
+</g>
+<text x="610" y="40" text-anchor="middle" class="t" style="fill:#b26a00">XL cache: each attention block also attends to the previous window's keys/values</text>
+<g stroke="#4a4fc9" stroke-width="2"><line x1="152" y1="160" x2="152" y2="128"/><line x1="532" y1="160" x2="532" y2="128"/></g>
+<circle cx="152" cy="166" r="6" fill="#4a4fc9"/><circle cx="532" cy="166" r="6" fill="#4a4fc9"/>
+<text x="152" y="192" text-anchor="middle" class="t" style="fill:#4a4fc9">tables after 2</text>
+<text x="532" y="192" text-anchor="middle" class="t" style="fill:#4a4fc9">tables after 12</text>
+<path d="M532 128 Q 560 168 600 172" stroke="#1b1f27" stroke-width="1.2" fill="none" stroke-dasharray="4 3" marker-end="url(#b)"/>
+<text x="606" y="176" class="t">memory branch after 12, rounds 0-4 only (TTT, CMS, slots)</text>
+<rect x="40" y="18" width="14" height="14" rx="3" fill="#ffffff" stroke="#1b1f27"/><text x="60" y="30" class="tm">Gated DeltaNet</text>
+<rect x="170" y="18" width="14" height="14" rx="3" fill="#b26a00" stroke="#1b1f27"/><text x="190" y="30" class="tm">attention (NoPE)</text>
+</svg>
