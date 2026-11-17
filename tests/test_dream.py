@@ -90,9 +90,13 @@ def test_replay_filters_flip_and_unstored():
     facts = [{"subject": "Ana", "object": "red"}, {"subject": "Bo", "object": "blue"}]
     rs = lambda f, n: [f"{f['subject']} likes {f['object']}"] * n
     gen = lambda f, c: "red" if f["subject"] == "Ana" else "blue"
-    hist = {"Ana": "red", "Bo": "green"}  # Bo flipped since last night
+    hist = {("Ana", None): "red", ("Bo", None): "green"}  # Bo flipped since last night
     docs, st = dreams(gen, facts, rs, n=3, consensus=True, history=hist)
-    assert len(docs) == 1 and st["flipped"] == 1 and hist["Bo"] == "blue"
+    assert len(docs) == 1 and st["flipped"] == 1 and hist[("Bo", None)] == "blue"
+    # same subject, different relation is a different fact: no flip
+    docs, st = dreams(gen, [{"subject": "Bo", "object": "blue", "template": 1}], rs, n=3,
+                      consensus=True, history=hist)
+    assert st["flipped"] == 0
     # tables-off answer equals dreamed answer for Ana -> never stored
     off = lambda f, c: "red"
     docs, st = dreams(gen, facts, rs, n=3, consensus=True, ablate_gen=off)

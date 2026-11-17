@@ -42,7 +42,7 @@ def _first_word(ans):
 
 
 def dreams(gen, facts, restructure_fn, n=7, consensus=False, min_agree=0,
-           ablate_gen=None, history=None):
+           ablate_gen=None, history=None, skip_flips=True):
     """One dream per cue. gen(prompt) -> continuation. Returns
     ([docs], stats); docs are cue + dreamed answer, one per fact.
     consensus: the fact's n dreams vote (first word of each answer) and every
@@ -55,7 +55,8 @@ def dreams(gen, facts, restructure_fn, n=7, consensus=False, min_agree=0,
     winner equals the dreamed one the tables add nothing (the fact was never
     stored, the answer is the backbone's guess) and the fact is skipped.
     history: subject -> last voted winner, updated in place; a fact whose
-    winner changed since the last night is unstable and skipped."""
+    winner changed since the last night is unstable and skipped (day dreams
+    pass skip_flips=False: new information may overwrite, it only records)."""
     from collections import Counter
     docs, right, total, dropped, flipped, unstored = [], 0, 0, 0, 0, 0
     for f in facts:
@@ -64,13 +65,14 @@ def dreams(gen, facts, restructure_fn, n=7, consensus=False, min_agree=0,
         if consensus:
             votes = Counter(w for w in map(_first_word, answers) if w)
             win, cnt = votes.most_common(1)[0] if votes else ("", 0)
-            prev = history.get(f["subject"]) if history is not None else None
+            key = (f["subject"], f.get("template"))  # the cue, never the answer
+            prev = history.get(key) if history is not None else None
             if history is not None:
-                history[f["subject"]] = win
+                history[key] = win
             if cnt < min_agree:
                 dropped += 1
                 continue
-            if prev is not None and prev != win:
+            if skip_flips and prev is not None and prev != win:
                 flipped += 1
                 continue
             if ablate_gen is not None:

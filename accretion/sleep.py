@@ -107,7 +107,7 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
     if dream:  # night: the corpus is dreamed, not given
         from accretion.dream import dreams
         texts, dstats["day"] = dreams(dream[0], fresh, restructure_fn, n_variants, consensus=dream[2],
-                                          history=dream[5] if len(dream) > 5 else None)
+                                          history=dream[5] if len(dream) > 5 else None, skip_flips=False)
         log(f"[cycle {cycle}] dreamed the day: {dstats['day']}")
     else:  # distil RESTRUCTURED variants, never the raw surface form
         texts = ["\n".join(restructure_fn(f, n_variants)) for f in fresh]
