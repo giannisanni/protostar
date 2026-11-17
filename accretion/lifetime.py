@@ -75,6 +75,8 @@ def main():
                          "answer (the tables never stored it)")
     ap.add_argument("--replay-flip", action="store_true",
                     help="skip re-dreaming a prior fact whose voted answer changed since last night")
+    ap.add_argument("--seed", type=int, default=0,
+                    help="table init + day stream order; also rotates which held-out corpus is A/B/C")
     ap.add_argument("--micro", action="store_true",
                     help="with --day stream: one small sleep per window as it leaves the "
                          "cache (steps split evenly) instead of one sleep per day")
@@ -99,10 +101,12 @@ def main():
     for p in model.parameters():
         p.requires_grad_(False)
 
-    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "") + ("_adaptive" if a.adaptive_replay else "") + ("_dream" if a.dream else "") + ("_consensus" if a.consensus else "") + (f"_agree{a.replay_agree}" if a.replay_agree else "") + ("_stream" if a.day == "stream" else "") + ("_micro" if a.micro else "") + ("_ablate" if a.replay_ablate else "") + ("_flip" if a.replay_flip else "")
+    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "") + ("_adaptive" if a.adaptive_replay else "") + ("_dream" if a.dream else "") + ("_consensus" if a.consensus else "") + (f"_agree{a.replay_agree}" if a.replay_agree else "") + ("_stream" if a.day == "stream" else "") + ("_micro" if a.micro else "") + ("_ablate" if a.replay_ablate else "") + ("_flip" if a.replay_flip else "") + (f"_s{a.seed}" if a.seed else "")
     out = Path(a.out) / tag
     out.mkdir(parents=True, exist_ok=True)
     registry = KnowledgeRegistry(out / "registry.jsonl")
+    if a.seed:  # default stays unseeded, as every earlier run
+        torch.manual_seed(a.seed)
     sub = build_substrate("engram", d=cfg.d, n_layer=cfg.n_layer).to(a.device)
     val = Shards(a.data, "val", 4, cfg.seq_len)
 
@@ -134,6 +138,8 @@ def main():
     else:
         corpora = [make_facts(a.facts_per_corpus, seed=100 + i) for i in range(a.corpora)]
         probe_fn, restr_fn = l1_probe, restructure
+    k = a.seed % len(corpora)
+    corpora = corpora[k:] + corpora[:k]
     names = [chr(ord("A") + i) for i in range(a.corpora)]
 
     if a.freeze_after:
@@ -152,7 +158,7 @@ def main():
         if a.dream:
             from accretion.dream import live_day_stream, make_gen
             if a.day == "stream":
-                mems, nw = live_day_stream(model, sub, corpus, enc, a.device, seed=i)
+                mems, nw = live_day_stream(model, sub, corpus, enc, a.device, seed=i + 1000 * a.seed)
                 print(f"[day {i}] streamed {len(corpus)} facts in {nw} windows through the fast memory", flush=True)
                 day_gen = make_gen(model, sub, enc, a.device, mems=mems)
             else:
