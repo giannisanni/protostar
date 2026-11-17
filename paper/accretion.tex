@@ -21,7 +21,7 @@ answer-free prompts about the day and completes them from that cache. These
 \emph{dreams}, filtered by self-consistency voting, are the only training
 data for a set of sparse lifetime tables; a gate on held-out loss and on
 recall of everything committed before can roll the write back. No ground-truth
-answer enters consolidation. Three results stand out. (1) A retrieval
+answer enters consolidation. Four results stand out. (1) A retrieval
 curriculum that keeps every answer out of the attention window, the standard
 guard against leakage, trained the model out of in-context copying (31.8\% to
 3\% first-token accuracy with the fact in context), silently confounding four
@@ -40,9 +40,11 @@ attention query and key projections, against real post-sleep tables, does so
 within 0.013 of the untuned model's val loss, and the loop then learns 57\% of a day's
 facts (0\% without sleep). Two label-free checks on rehearsal, whether the
 tables change a dream's answer and whether it is stable across nights, raise
-re-dreamed old facts from 27 to 77\% correct, and the model then keeps half of
-a day's facts after two more days (51\% against 40\% without the checks, mean
-of three seeds) and a quarter more knowledge overall; splitting sleep into one small sleep per window, so that consolidation
+re-dreamed old facts from 27 to 77\% correct. Restricting each night's write to
+the table rows that the night's dreams use far more than ordinary text then
+lets the model keep 81\% of a day's facts after two more days (40\% with
+neither, 94\% when sleep trains on the true answers; means of three seeds);
+splitting sleep into one small sleep per window, so that consolidation
 runs during the day, fails. All
 thresholds were set before each run, and every probe is reported against the
 model's own in-context ceiling.
@@ -240,7 +242,7 @@ round & fast tier & gain & note\\\midrule
 7c & round 5 + cue tuning (q/k only) & +88.2 & val 3.511\\\bottomrule
 \end{tabular}\end{table}
 
-\subsection{Sleep, replay and interference}
+\subsection{Sleep, replay and interference}\label{sec:interference}
 On the earlier memory-native checkpoint, consolidation without replay erased
 corpus A almost entirely after two later cycles (kept 12.5\% homogeneous, 0\%
 on varied domains). With 30\% replay, corpus A kept 77.8\% and 76.5\%, and total
@@ -401,6 +403,35 @@ filters corpus A keeps 50.7\% on average and wins in two of three seeds, and
 the model retains more facts in all three (67 against 54 of 180 on average).
 Both pre-registered criteria hold: the filters help keeping and retention.
 
+\subsection{Sparse writes}
+\label{sec:sparse}
+With rehearsal mostly right, what remains is forgetting during the sleep
+itself. Following sparse memory finetuning \citep{lin2025sparsememft}, we let
+each night change only the table rows its documents use far more than ordinary
+text: rows are ranked by their hit count in the night's dreams times the log
+inverse of their frequency on FineWeb, and only the top quarter of the rows the
+night hits may change, about 2{,}500 of 524{,}288 (0.5\%). All other rows are
+restored after every step, which also stops weight decay from shrinking them.
+The shared projections still train. We predicted little gain, since
+Section~\ref{sec:interference} placed interference in the shared projections. That was wrong
+(Table~\ref{tab:sparse}): with the filters on, corpus A keeps 81.0\% on
+average against 50.7\%, in all three seeds, and the model retains 74 facts
+against 67, while learning is unchanged. Once rehearsal is clean, which rows a
+night overwrites matters. The cost is drift, which doubles to +0.044 on
+average, inside the budget of +0.05 but close to it.
+
+\begin{table}[t]\centering\small
+\caption{Sparse writes on top of the filters (three seeds, same loop as
+Table~\ref{tab:seeds}).}\label{tab:sparse}
+\begin{tabular}{lrrrrr}\toprule
+& \multicolumn{2}{c}{A kept} & \multicolumn{2}{c}{retained of 180} & \\
+seed & filters & + sparse & filters & + sparse & drift\\\midrule
+0 & 44.1\% & 70.6\% & $\sim$70 & $\sim$76 & +0.040\\
+1 & 63.0\% & 92.3\% & $\sim$73 & $\sim$73 & +0.046\\
+2 & 45.0\% & 80.0\% & $\sim$59 & $\sim$73 & +0.047\\\midrule
+mean & 50.7\% & \textbf{81.0\%} & $\sim$67 & $\sim$\textbf{74} & +0.044\\\bottomrule
+\end{tabular}\end{table}
+
 \begin{table}[t]\centering\small
 \caption{Three seeds of the full loop on the round-7c model, without and with
 the ablation and stability filters. Night-1 learning is identical by
@@ -480,7 +511,7 @@ voting rule. A language model's own samples are effective replay against
 forgetting unless the model is near capacity \citep{marek2026forgetting}.
 Sparse memory finetuning \citep{lin2025sparsememft} limits interference by
 updating only memory slots that new knowledge activates more than pretraining
-did; our tables are written by ordinary gradient descent and could adopt it.
+did; we adopt its row selection for the tables (Section~\ref{sec:sparse}).
 
 \section{Limitations}
 The final comparison uses three seeds; every other arm is one seed, and
@@ -505,10 +536,13 @@ after the day itself: it dreams about what it read, votes on its dreams, sleeps
 on them, and keeps the result. The stage that failed first was not storage
 but the step from memory to a dream: the cache held the facts and the model
 could not answer a cue from it until it was trained to. After that it learns
-more than half of a day and, with filtered rehearsal, keeps about half of that. Rehearsal from its own
+more than half of a day and, with filtered rehearsal and sparse writes, keeps
+four fifths of that. Rehearsal from its own
 dreams was mostly wrong until two label-free checks, whether the tables change
 the answer and whether the answer is stable across nights, made it mostly
-right; what still limits it is what the weights lose during sleep itself. The two lessons we would pass on are methodological. Measure the
+right, and confining each night's write to the rows its dreams use took
+keeping from half to four fifths; what it costs now is val drift close to the
+budget. The two lessons we would pass on are methodological. Measure the
 backbone's own ceiling on every probe before setting a bar. And when a new
 memory module stores information but does not use it, check whether the model
 already has a retrieval circuit you could hand the memory to.
