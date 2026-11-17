@@ -166,18 +166,21 @@ class Protostar(nn.Module):
             from accretion.slots import SlotMemory
 
             if cfg.mem == "xl":  # memory lives inside the attention layers
-                from accretion.xl import XLCache
-                self.fast = XLCache(cfg.xl_size)
+                from accretion.xl import XLCache, XLWithCMS
+                xl = XLCache(cfg.xl_size)
+                # cms with xl: a CMS branch at fast_layer for windows the cache no longer holds
+                self.fast = XLWithCMS(xl, MemoryStack(cfg.d, cfg.cms, cfg.readback, cfg.per_token)) \
+                    if cfg.cms else xl
                 for blk in self.blocks:
                     if not blk.is_gdn:
-                        object.__setattr__(blk.mix, "xl", self.fast)  # plain ref, not a submodule
+                        object.__setattr__(blk.mix, "xl", xl)  # plain ref, not a submodule
             elif cfg.mem == "slots":  # bptt on: the trainer's detach_() sets the horizon
                 self.fast = SlotMemory(cfg.d, cfg.n_head, cfg.slot_size, bptt=True)
             elif cfg.cms:
                 self.fast = MemoryStack(cfg.d, cfg.cms, cfg.readback, cfg.per_token)
             else:
                 self.fast = FastMemory(cfg.d, hidden=cfg.fast_hidden, chunk=cfg.fast_chunk)
-        if cfg.fast_memory and cfg.mem != "xl":
+        if cfg.fast_memory and (cfg.mem != "xl" or cfg.cms):
             # MAG: memory is a GATED PARALLEL BRANCH, not an in-line residual add.
             # Titans measured MAG > MAL; v1 accidentally used MAL-shaped injection.
             self.fast_gate = nn.Linear(cfg.d, 1)
@@ -224,13 +227,13 @@ class Protostar(nn.Module):
             self.fast.reset(h.size(0), h.device, h.dtype)
         for i, blk in enumerate(self.blocks):
             h = blk(h, self.cos, self.sin)
-            if self.cfg.fast_memory and self.cfg.mem != "xl" and i == self.cfg.fast_layer:
+            if self.cfg.fast_memory and (self.cfg.mem != "xl" or self.cfg.cms) and i == self.cfg.fast_layer:
                 # each forward() is an independent training sequence — the
                 # inner state must not leak across unrelated batches. Only
                 # a stateful CALLER (accretion inference) should carry it on,
                 # by setting model.persist_memory = True.
-                if not getattr(self, "persist_memory", False):
-                    self.fast.reset(h.size(0), h.device, h.dtype)
+                if self.cfg.mem != "xl" and not getattr(self, "persist_memory", False):
+                    self.fast.reset(h.size(0), h.device, h.dtype)  # xl: reset above, both tiers
                 retrieved, surprise = self.fast.update(h)
                 g = torch.sigmoid(self.fast_gate(h))
                 self.last_gate = float(g.mean().detach())

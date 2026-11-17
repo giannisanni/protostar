@@ -80,3 +80,34 @@ def test_wrap_and_density_defaults_are_bit_identical_and_knobs_work():
         d.next_window()
     n_state = sum(k == "state" for k, *_ in d.log)
     assert n_state / 50 > 9, n_state / 50
+
+
+def test_xl_cms_seeds_levels_from_v2_memory():
+    src = Protostar(Config(**KW)).state_dict()  # v2: single fast memory
+    dst = Protostar(Config(**KW, mem="xl", cms=[[8, 0.99, 0], [32, 0.999, 1]]))
+    sd = seed_cms(src, dst.state_dict())
+    dst.load_state_dict(sd)  # strict: every key accounted for
+    assert torch.equal(sd["fast.cms.levels.1.wk.weight"], src["fast.wk.weight"])
+    assert torch.equal(sd["fast_proj.weight"], src["fast_proj.weight"])
+
+
+def test_xl_cms_carries_what_the_cache_dropped():
+    """Clear the cache before window 3: only the CMS tier can still carry
+    windows 1-2 into it. (Through the cache alone window 1 can leak, since
+    window 2's cached upper-layer K/V attended to it: XL recurrence.)"""
+    x = torch.randint(0, 128, (2, 48))
+    alt = x.clone()
+    alt[:, :16] = torch.randint(0, 128, (2, 16))  # different window 1, same 2 and 3
+    for cms, should_differ in ((None, False), ([[8, 0.99, 0], [32, 0.999, 1]], True)):
+        m = _model(mem="xl", xl_size=16, cms=cms, fast_layer=2)
+        outs = []
+        for seq in (x, alt):
+            m.persist_memory = True
+            m.fast.reset(2)
+            with torch.no_grad():
+                for w in range(3):
+                    if w == 2:
+                        (m.fast.xl if cms else m.fast).reset(2)
+                    o, _ = m(seq[:, 16 * w:16 * (w + 1)])
+            outs.append(o)
+        assert torch.allclose(outs[0], outs[1], atol=1e-5) != should_differ, cms

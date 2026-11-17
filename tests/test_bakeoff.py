@@ -19,7 +19,8 @@ def test_bakeoff_forward_matches_model_forward():
     from accretion.bakeoff import forward
     from model import Config, Protostar
 
-    for extra in ({}, {"fast_memory": True}, {"fast_memory": True, "mem": "xl", "xl_size": 32}):
+    for extra in ({}, {"fast_memory": True}, {"fast_memory": True, "mem": "xl", "xl_size": 32},
+                  {"fast_memory": True, "mem": "xl", "xl_size": 32, "cms": [[8, 0.99, 0], [32, 0.999, 1]]}):
         torch.manual_seed(0)
         cfg = Config(d=64, n_layer=6, n_head=4, n_kv_head=2, seq_len=64,
                      vocab=512, fast_hidden=128, fast_chunk=16, fast_layer=3,

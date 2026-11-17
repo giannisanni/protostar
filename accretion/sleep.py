@@ -58,7 +58,8 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
                 baseline_val=None,
                 val_eps=0.05, retention_floor=0.5, gate=True,
                 bucket_only=False, restructure_fn=restructure,
-                replay_frac=0.0, adaptive_replay=False, dream=None, log=print):
+                replay_frac=0.0, adaptive_replay=False, dream=None, log=print,
+                sparse_frac=0.0, bg_counts=None):
     """One sleep cycle. Returns a dict of evidence; commits or rolls back.
 
     adaptive_replay  scale the rehearsal rate with how much there is to
@@ -131,6 +132,23 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
             f"{replay_frac:.0%} of each batch")
     params = sub.bucket_params() if bucket_only else sub.write_params()
     opt = torch.optim.AdamW(params, lr=lr)
+    keep = None
+    if sparse_frac:
+        # sparse memory finetuning (Lin et al. 2025): only rows tonight's
+        # documents use far more than ordinary text may change. TF-IDF:
+        # tonight's hits x log(1 / background frequency); top sparse_frac of
+        # the hit rows per table. Every other row is restored after each step,
+        # so neither the gradient nor AdamW's weight decay can move it.
+        tf = sub.row_counts(docs + replay_docs)
+        idf = torch.log((bg_counts.sum(1, keepdim=True) + 1) / (bg_counts + 1))
+        score = torch.where(tf > 0, tf * idf, torch.full_like(tf, -1.0))
+        n = ((tf > 0).sum(1) * sparse_frac).clamp(min=1).long()
+        keep = torch.zeros_like(tf, dtype=torch.bool)
+        for i in range(tf.size(0)):
+            keep[i, score[i].topk(int(n[i])).indices] = True
+        frozen = [t.weight.detach().clone() for t in sub.tables]
+        log(f"[cycle {cycle}] sparse writes: {int(keep.sum())} of {int((tf > 0).sum())} hit rows "
+            f"({int(keep.sum()) / keep.numel():.2%} of the tables)")
     sub.train()
     model.train()  # fla GDN chunk kernel needs train mode for backward
     import random as _random
@@ -144,6 +162,10 @@ def consolidate(model, sub, new_facts, registry, val_loss_fn, probe_fn, enc,
         loss.backward()
         opt.step()
         opt.zero_grad(set_to_none=True)
+        if keep is not None:
+            with torch.no_grad():
+                for i, t in enumerate(sub.tables):
+                    t.weight[~keep[i]] = frozen[i][~keep[i]]
     sub.eval()
     model.eval()
 

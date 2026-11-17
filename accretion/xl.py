@@ -83,3 +83,49 @@ class XLCache(nn.Module):
     def load(self, snap):
         self.kv = {i: (k.clone(), v.clone()) for i, (k, v) in snap["kv"].items()}
         self.ok = None if snap["ok"] is None else snap["ok"].clone()
+
+
+class XLWithCMS(nn.Module):
+    """Hope-style middle tier under the XL cache: the cache answers age 1 (the
+    previous window, exact), a CMS stack at the fast_layer branch carries
+    older windows compressed. One object so every caller that resets,
+    snapshots or detaches model.fast keeps working unchanged."""
+
+    def __init__(self, xl, cms):
+        super().__init__()
+        self.xl, self.cms = xl, cms
+
+    def reset(self, batch=1, device=None, dtype=None):
+        self.xl.reset(batch, device, dtype)
+        self.cms.reset(batch, device, dtype)
+
+    def reset_lanes(self, mask):
+        self.xl.reset_lanes(mask)
+        self.cms.reset_lanes(mask)
+
+    def detach_(self):
+        self.xl.detach_()
+        self.cms.detach_()
+
+    def end_window(self):
+        self.xl.end_window()
+
+    def update(self, h):
+        return self.cms.update(h)
+
+    forward = update
+
+    @property
+    def w(self):
+        return self.cms.w
+
+    @property
+    def last_aux(self):
+        return self.cms.last_aux
+
+    def snapshot(self):
+        return {"xl": self.xl.snapshot(), "cms": self.cms.snapshot()}
+
+    def load(self, snap):
+        self.xl.load(snap["xl"])
+        self.cms.load(snap["cms"])

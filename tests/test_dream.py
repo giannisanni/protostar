@@ -101,3 +101,15 @@ def test_replay_filters_flip_and_unstored():
     off = lambda f, c: "red"
     docs, st = dreams(gen, facts, rs, n=3, consensus=True, ablate_gen=off)
     assert len(docs) == 1 and st["unstored"] == 1
+
+
+def test_engram_rows_match_lookup_and_sparse_restore_is_exact():
+    import torch
+    from accretion.substrates import build_substrate
+    sub = build_substrate("engram", d=32, n_layer=4, buckets=64, heads=2, dim=4)
+    ids = torch.randint(0, 500, (1, 12))
+    r = sub.rows(ids)
+    e = sub._mem(ids)  # interleaved per head: [2g h0, 3g h0, 2g h1, 3g h1]
+    assert torch.equal(e[..., :4], sub.tables[0](r[0])) and torch.equal(e[..., 4:8], sub.tables[2](r[2]))
+    c = sub.row_counts([ids])
+    assert c.shape == (4, 64) and int(c[0].sum()) == 12

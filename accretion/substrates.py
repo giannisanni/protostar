@@ -65,16 +65,31 @@ class Engram(_Base):
     # multiplicative-XOR-ish hashes over 2- and 3-gram suffixes
     _P = (1000003, 999983, 786433, 655360001, 909091, 65599, 100003, 31)
 
-    def _mem(self, ids):
+    def rows(self, ids):
+        """Row index per table (tables[i] is read at rows(ids)[i])."""
         p1 = F.pad(ids[:, :-1], (1, 0))
         p2 = F.pad(ids[:, :-2], (2, 0)) if ids.size(1) > 1 else torch.zeros_like(ids)
-        outs = []
+        r = [None] * (2 * self.heads)
         for h in range(self.heads):
             a, b = self._P[h % len(self._P)], self._P[(h + 3) % len(self._P)]
-            outs.append(self.tables[h]((p1 * a + ids * b) % self.buckets))
-            outs.append(self.tables[self.heads + h](
-                (p2 * a + p1 * b + ids * self._P[(h + 5) % len(self._P)]) % self.buckets))
+            r[h] = (p1 * a + ids * b) % self.buckets
+            r[self.heads + h] = (p2 * a + p1 * b + ids * self._P[(h + 5) % len(self._P)]) % self.buckets
+        return r
+
+    def _mem(self, ids):
+        r = self.rows(ids)
+        outs = []  # interleaved 2-gram/3-gram per head, the original layout
+        for h in range(self.heads):
+            outs += [self.tables[h](r[h]), self.tables[self.heads + h](r[self.heads + h])]
         return torch.cat(outs, -1)
+
+    def row_counts(self, docs):
+        """(n_tables, buckets) hit counts over a list of (1, T) id tensors."""
+        c = torch.zeros(2 * self.heads, self.buckets, device=self.tables[0].weight.device)
+        for d in docs:
+            for i, r in enumerate(self.rows(d)):
+                c[i] += torch.bincount(r.flatten(), minlength=self.buckets).to(c.dtype)
+        return c
 
     def forward(self, h, ids, layer):
         if layer not in self.sites:

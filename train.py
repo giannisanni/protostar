@@ -57,6 +57,17 @@ def seed_cms(sd, target):
     if not any(k.startswith("fast") for k in target):  # xl: memory has no weights
         out = {k: v for k, v in sd.items() if not k.startswith("fast")}
         return {**out, **{k: v for k, v in target.items() if "xl_bias" in k and k not in out}}
+    if any(k.startswith("fast.cms.") for k in target) and \
+            not any(k.startswith("fast.cms.") for k in sd):
+        # xl + cms: every CMS level starts as a copy of the v2 single memory
+        # (fast.*) when the checkpoint has one, else its own init
+        out = {k: v for k, v in sd.items() if not k.startswith("fast.")}
+        for k in target:
+            if k.startswith("fast.cms.levels."):
+                out[k] = sd.get("fast." + k.split(".", 4)[4], target[k])
+            elif k.startswith("fast") and k not in out:
+                out[k] = sd.get(k, target[k])
+        return out
     if "fast.null_k" in target and "fast.null_k" not in sd:  # new memory type: fresh init
         return {**{k: v for k, v in sd.items() if not k.startswith("fast.")},
                 **{k: v for k, v in target.items() if k.startswith("fast.")}}

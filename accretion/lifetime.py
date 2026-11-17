@@ -77,6 +77,9 @@ def main():
                     help="skip re-dreaming a prior fact whose voted answer changed since last night")
     ap.add_argument("--seed", type=int, default=0,
                     help="table init + day stream order; also rotates which held-out corpus is A/B/C")
+    ap.add_argument("--sparse", type=float, default=0.0,
+                    help="sparse memory finetuning: only the top fraction (TF-IDF vs FineWeb) of "
+                         "table rows tonight's documents hit may change. 0 = all rows")
     ap.add_argument("--micro", action="store_true",
                     help="with --day stream: one small sleep per window as it leaves the "
                          "cache (steps split evenly) instead of one sleep per day")
@@ -101,7 +104,7 @@ def main():
     for p in model.parameters():
         p.requires_grad_(False)
 
-    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "") + ("_adaptive" if a.adaptive_replay else "") + ("_dream" if a.dream else "") + ("_consensus" if a.consensus else "") + (f"_agree{a.replay_agree}" if a.replay_agree else "") + ("_stream" if a.day == "stream" else "") + ("_micro" if a.micro else "") + ("_ablate" if a.replay_ablate else "") + ("_flip" if a.replay_flip else "") + (f"_s{a.seed}" if a.seed else "")
+    tag = ("nogate" if a.no_gate else "gate") + (f"_frozen{a.freeze_after}" if a.freeze_after else "") + ("_varied" if a.varied else "") + (f"_replay{int(a.replay*100)}" if a.replay else "") + ("_adaptive" if a.adaptive_replay else "") + ("_dream" if a.dream else "") + ("_consensus" if a.consensus else "") + (f"_agree{a.replay_agree}" if a.replay_agree else "") + ("_stream" if a.day == "stream" else "") + ("_micro" if a.micro else "") + ("_ablate" if a.replay_ablate else "") + ("_flip" if a.replay_flip else "") + (f"_sparse{int(a.sparse*100)}" if a.sparse else "") + (f"_s{a.seed}" if a.seed else "")
     out = Path(a.out) / tag
     out.mkdir(parents=True, exist_ok=True)
     registry = KnowledgeRegistry(out / "registry.jsonl")
@@ -148,6 +151,10 @@ def main():
     print(f"=== lifetime benchmark ({tag}) — {a.corpora} corpora x "
           f"{a.facts_per_corpus} facts, {a.steps} steps/cycle ===", flush=True)
     base_val = val_loss_fn(None)
+    bg = None
+    if a.sparse:  # background row usage: what ordinary text reads
+        val.pos = 0
+        bg = sub.row_counts([b[:1].to(a.device) for b, _ in zip(val.batches(), range(16))])
     print(f"backbone val (no substrate): {base_val:.4f}", flush=True)
 
     matrix = {n: {} for n in names}
@@ -186,7 +193,7 @@ def main():
                         gate=not a.no_gate, bucket_only=bucket_only,
                         restructure_fn=restr_fn, replay_frac=a.replay,
                         adaptive_replay=a.adaptive_replay, baseline_val=base_val,
-                        dream=dream)
+                        dream=dream, sparse_frac=a.sparse, bg_counts=bg)
         if a.save_subs:
             os.makedirs(a.save_subs, exist_ok=True)
             torch.save(sub.state_dict(), os.path.join(a.save_subs, f"sub_{i}.pt"))

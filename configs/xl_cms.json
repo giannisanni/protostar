@@ -1,0 +1,1 @@
+{"gdn_ratio": 4, "fast_memory": true, "mem": "xl", "xl_size": 512, "cms": [[64, 0.99, 0], [512, 0.995, 1], [2048, 0.999, 1]], "readback": 0.1}
