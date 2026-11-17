@@ -38,7 +38,11 @@ density). Short training on the cue format with held-out subjects and
 per-sample random answers raised cache dreams to 100\%; tuning only the
 attention query and key projections, against real post-sleep tables, does so
 within 0.013 of the untuned model's val loss, and the loop then learns 57\% of a day's
-facts (0\% without sleep) and keeps half of them after two more days. All
+facts (0\% without sleep) and keeps half of them after two more days. Two
+label-free checks on rehearsal, whether the tables change a dream's answer and
+whether it is stable across nights, raise re-dreamed old facts from 24 to 79\%
+correct; splitting sleep into one small sleep per window, so that consolidation
+runs during the day, fails. All
 thresholds were set before each run, and every probe is reported against the
 model's own in-context ceiling.
 \end{abstract}
@@ -98,8 +102,8 @@ learned per-head bias on cached logits marks them as past
 (Section~\ref{sec:results-fast}).
 
 \subsection{Lifetime tables and sleep}
-Lifetime memory is a pair of hashed $n$-gram tables injected after blocks 2 and
-12. A sleep cycle trains only the tables (AdamW, 12k steps) on restructured
+Lifetime memory is a pair of hashed $n$-gram tables in the style of Engram
+\citep{cheng2026engram}, injected after blocks 2 and 12. A sleep cycle trains only the tables (AdamW, 12k steps) on restructured
 documents about the day's facts. Two safeguards come from earlier failures.
 \emph{Replay}: 30\% of each batch rehearses previously committed facts.
 \emph{Gate}: a write is committed only if held-out val loss stays within
@@ -336,7 +340,64 @@ val drift & +0.018 & +0.022 & +0.020 & +0.021 & +0.024\\\bottomrule
 
 The remaining loss is in rehearsal. Old facts are re-dreamed from the weights,
 and by night 3 only 24\% of those dreams are right, so most of what is rehearsed
-about corpus A is wrong. \todo{round 8: vote-agreement gate on replay dreams}
+about corpus A is wrong.
+
+\subsection{Filtering rehearsal}
+\label{sec:filters}
+A replay dream is wrong because the weights no longer hold the fact, so the
+filter has to detect that without the answer. We tested three signals, all
+computed from the model's own dreams (Table~\ref{tab:filters}).
+\emph{Agreement}: re-dream a fact only if at least $K$ of its seven dreams
+agree. This made rehearsal worse at every $K$: the facts the model is most sure
+of are as often wrong as the others (22 to 50\% right), and dropping the less
+sure ones removed the right answers along with the wrong ones; corpus A kept 18
+to 27\%. Majority voting is known to lock in confident errors under
+self-training \citep{lin2026extinction}; we see the same thing in rehearsal.
+\emph{Ablation}: re-dream each old fact a second time with the lifetime tables
+switched off; if the vote is the same, the tables add nothing to that answer and
+it is the backbone's guess, so the fact is skipped. \emph{Stability}: remember
+each fact's voted answer from its last dream (its day dream, or the previous
+night) and skip it when the answer has changed, in the spirit of the flip rate
+of \citet{lin2026extinction}. Day dreams are never filtered, so new information
+can still overwrite old.
+
+With both ablation and stability, rehearsal is right 100 and 79\% of the time
+on nights 2 and 3, against 47 and 24\% unfiltered, and the model ends with
+about 70 of 180 facts against 56, at the same drift. Corpus A keeps 44\%
+against 50\%: the filters remove the facts the weights already lost, so they
+protect what is still known and cannot restore what is not, and without the
+answer nothing can. \todo{seeds 1--2: mean A kept and facts retained}
+
+\begin{table}[t]\centering\small
+\caption{Rehearsal filters on the round-7c model (same loop as
+Table~\ref{tab:cuetune}, one seed). Replay accuracy is over the old facts that
+were rehearsed (nights 2 / 3); retained = facts of 180 recalled at the end.
+Micro-sleep learns corpus A at 16.7\% (30.0\% with both filters) against 56.7\%.}\label{tab:filters}
+\begin{tabular}{lrrrr}\toprule
+filter & replay right & A kept & retained & drift\\\midrule
+none (7c) & 47 / 24\% & 50.0\% & $\sim$56 & +0.024\\
+agree $\geq$4/5/6 of 7 & 22--50\% & 18--27\% & & $\leq$+0.025\\
+ablation & 50 / 39\% & 44.1\% & $\sim$67 & +0.022\\
+ablation + stability & \textbf{100 / 79\%} & 44.1\% & $\sim$\textbf{70} & +0.022\\\midrule
+micro-sleep & 20 $\to$ 0\% & 0\% & & +0.018\\
+micro + both & 45 / 28\% & 22.2\% & $\sim$13 & +0.019\\\bottomrule
+\end{tabular}\end{table}
+
+\subsection{Sleeping during the day}
+\label{sec:micro}
+Can consolidation run continuously, as text scrolls out of the cache, instead
+of once a day? We split each day's sleep into six, one per 512-token window as
+it leaves the fast tier, with the same total number of steps. It fails. After
+the first small sleep, the earlier windows of the same day are already old and
+are re-dreamed from weights that have seen them for 2000 steps; those dreams
+are right 20\% of the time at first and 0\% by the end, and the model trains
+on its own errors all day (corpus A learned 16.7\%, kept 0\%). The filters
+stop the collapse but not the deficit: 30\% learned and 22\% kept, against
+56.7\% and 44\% for one sleep per day. In this system the slow tier needs a
+whole day's evidence before its own dreams can be trusted for rehearsal.
+\citet{lee2026sleep} consolidate per context window successfully, but their
+sleep is a learned recurrence trained end to end, not rehearsal from
+self-labelled dreams.
 
 \section{Related work}
 \textbf{Test-time memory.} TTT layers \citep{sun2024ttt} and Titans
@@ -350,12 +411,29 @@ they say the bottleneck was learning to address, not capacity.
 and Memorizing Transformers \citep{wu2022memorizing} attend to cached keys and
 values; MemoryLLM and M+ \citep{wang2024memoryllm,wang2025mplus} maintain a
 self-updated latent memory pool in an 8B model.
+\textbf{Sleep for language models.} Two concurrent works also give language
+models a sleep phase. \citet{behrouz2026sleep} consolidate by distilling a
+smaller model's memories into a larger network (knowledge seeding) and then
+dream: the model uses reinforcement learning to generate a synthetic curriculum
+that rehearses and refines its knowledge. \citet{lee2026sleep} run offline
+recurrent passes over the accumulated context and write it into the fast
+weights of SSM blocks through a learned local rule before clearing the KV cache.
+Ours differs in what is written and how it is labelled: dreams are completions
+of answer-free cues, the only label is a vote among the model's own dreams, the
+target is a sparse hashed table rather than network weights, and every write is
+gated against held-out loss and old recall with rollback. HOLA
+\citep{cui2026hola} pairs a delta-rule state with a bounded exact KV cache, the
+same split as our backbone plus fast tier.
 \textbf{Consolidation and replay.} Complementary learning systems
 \citep{mcclelland1995cls}; pseudo-rehearsal \citep{robins1995pseudo};
 generative replay \citep{shin2017generative}; sleep-like replay in networks
 \citep{tadros2022sleep}. SEAL \citep{zweiger2025seal} has a model write its
 own finetuning data. Self-consistency \citep{wang2023selfconsistency} is our
-voting rule.
+voting rule. A language model's own samples are effective replay against
+forgetting unless the model is near capacity \citep{marek2026forgetting}.
+Sparse memory finetuning \citep{lin2025sparsememft} limits interference by
+updating only memory slots that new knowledge activates more than pretraining
+did; our tables are written by ordinary gradient descent and could adopt it.
 
 \section{Limitations}
 One seed per arm; several effects sit within one to two standard errors.
@@ -366,8 +444,8 @@ window rely on sleep. The XL model is worse at ordinary language modeling than
 the matrix-memory model (3.51 against 3.34), and a cache bias did not close the
 gap. Cue tuning trains the exact cue format the night uses; held-out subjects
 and per-sample answers rule out memorized facts, but not that the read is
-specific to this format. The best loop keeps exactly the pre-registered 50\%,
-from one seed. Scale is 134M parameters and 393M tokens per round;
+specific to this format. Rehearsal can only protect facts the weights still
+hold, and consolidation within the day (Section~\ref{sec:micro}) fails. Scale is 134M parameters and 393M tokens per round;
 paraphrase-invariant retrieval at this size is capacity-limited (30\% in-context
 ceiling on our hardest probe level). Lifetime tables are trained by
 gradient descent; one-shot writes into the fast-weight memory across documents
@@ -379,8 +457,10 @@ after the day itself: it dreams about what it read, votes on its dreams, sleeps
 on them, and keeps the result. The stage that failed first was not storage
 but the step from memory to a dream: the cache held the facts and the model
 could not answer a cue from it until it was trained to. After that it learns
-more than half of a day and keeps half of that. The weak stage now is
-rehearsal, where old facts are re-dreamed from imperfect weights. The two lessons we would pass on are methodological. Measure the
+more than half of a day and keeps about half of that. Rehearsal from its own
+dreams was mostly wrong until two label-free checks, whether the tables change
+the answer and whether the answer is stable across nights, made it mostly
+right; what still limits it is what the weights lose during sleep itself. The two lessons we would pass on are methodological. Measure the
 backbone's own ceiling on every probe before setting a bar. And when a new
 memory module stores information but does not use it, check whether the model
 already has a retrieval circuit you could hand the memory to.
